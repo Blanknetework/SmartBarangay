@@ -23,7 +23,7 @@ export function Header() {
             SMARTBARANGAY
           </span>
           <span className="text-[7.5px] font-bold text-slate-700 dark:text-[#9CA3AF] mt-[2px] uppercase leading-tight tracking-wider transition-colors">
-            Integrated Barangay Management &<br/>Service Information System
+            Integrated Barangay Management &amp;<br/>Service Information System
           </span>
         </div>
       </div>
