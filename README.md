@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="public/barangay1.png" alt="SmartBarangay Logo" width="250"/>
+</p>
+
 # 🏛️ SmartBarangay Management System
 A modern, minimalist, and real-time integrated management system designed to streamline barangay operations, ranging from resident records to document requests!
 
