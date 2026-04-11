@@ -17,7 +17,7 @@ export function Header() {
     <header className="h-20 w-full bg-[#fcfdff] dark:bg-[#0F172A] flex items-center justify-between px-6 sticky top-0 z-50 shadow-sm border-b border-slate-200 dark:border-[#374151] transition-colors">
       {/* Left section: Logo and dark text */}
       <div className="flex items-center space-x-3 w-64 lg:w-[320px]">
-        <Image src="/barangay1.png" alt="Barangay Logo" width={60} height={60} className="object-contain shrink-0" priority />
+        <Image src="/Barangay1.png" alt="Barangay Logo" width={60} height={60} className="object-contain shrink-0" priority />
         <div className="flex flex-col justify-center hidden sm:flex transition-colors">
           <span className="font-black text-[15px] tracking-tighter text-slate-900 dark:text-[#F9FAFB] leading-none transition-colors">
             SMARTBARANGAY
