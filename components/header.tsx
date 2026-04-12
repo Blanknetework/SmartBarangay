@@ -1,13 +1,20 @@
 "use client";
 
-import { Bell, Search, Settings, User, Moon, Sun } from "lucide-react";
+import { Bell, Search, Settings, User, Moon, Sun, Menu } from "lucide-react";
 import Image from "next/image";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { navItems } from "@/components/sidebar";
+import { cn } from "@/lib/utils";
 
 export function Header() {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
+  const pathname = usePathname();
+  const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -17,6 +24,52 @@ export function Header() {
     <header className="h-20 w-full bg-[#fcfdff] dark:bg-[#0F172A] flex items-center justify-between px-6 sticky top-0 z-50 shadow-sm border-b border-slate-200 dark:border-[#374151] transition-colors">
       {/* Left section: Logo and dark text */}
       <div className="flex items-center space-x-3 w-64 lg:w-[320px]">
+        {/* Mobile Menu Trigger */}
+        <div className="md:hidden">
+          <Sheet open={isOpen} onOpenChange={setIsOpen}>
+            <SheetTrigger className="p-2 -ml-2 mr-2 rounded-lg hover:bg-slate-100 dark:hover:bg-[#1F2937] text-slate-500 dark:text-[#9CA3AF]">
+              <Menu size={24} />
+            </SheetTrigger>
+            <SheetContent side="left" className="w-64 p-0 bg-[#fcfdff] dark:bg-[#0F172A] border-r border-slate-200 dark:border-[#374151]">
+              <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
+              <SheetDescription className="sr-only">Mobile navigation menu</SheetDescription>
+              <div className="flex items-center space-x-3 p-6 border-b border-slate-200 dark:border-[#374151]">
+                <Image src="/Barangay1.png" alt="Barangay Logo" width={40} height={40} className="object-contain shrink-0" priority />
+                <div className="flex flex-col justify-center">
+                  <span className="font-black text-[13px] tracking-tighter text-slate-900 dark:text-[#F9FAFB] leading-none">
+                    SMARTBARANGAY
+                  </span>
+                </div>
+              </div>
+              <nav className="p-4 space-y-2">
+                <div className="px-3 text-[10px] font-bold text-slate-400 dark:text-[#9CA3AF] uppercase tracking-widest mb-4">
+                  Main Menu
+                </div>
+                {navItems.map((item) => {
+                  const isActive = pathname === item.href;
+                  const Icon = item.icon;
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => setIsOpen(false)}
+                      className={cn(
+                        "flex items-center space-x-3 rounded-xl px-3 py-3 transition-all font-medium text-sm",
+                        isActive
+                          ? "bg-[#3B82F6] text-white shadow-md shadow-[#3B82F6]/20 font-semibold"
+                          : "bg-transparent text-slate-600 dark:text-[#F9FAFB] hover:bg-slate-100 dark:hover:bg-[#1F2937] hover:text-slate-900 dark:hover:text-white"
+                      )}
+                    >
+                      <Icon size={18} className={cn(isActive ? "text-white" : "text-slate-400 dark:text-[#9CA3AF]", "shrink-0")} />
+                      <span>{item.name}</span>
+                    </Link>
+                  );
+                })}
+              </nav>
+            </SheetContent>
+          </Sheet>
+        </div>
+
         <Image src="/Barangay1.png" alt="Barangay Logo" width={60} height={60} className="object-contain shrink-0" priority />
         <div className="flex flex-col justify-center hidden sm:flex transition-colors">
           <span className="font-black text-[15px] tracking-tighter text-slate-900 dark:text-[#F9FAFB] leading-none transition-colors">
