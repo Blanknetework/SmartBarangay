@@ -12,11 +12,13 @@ import {
   Package,
   ChevronLeft,
   ChevronRight,
+  Briefcase,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export const navItems = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { name: "Barangay Officials", href: "/dashboard/officials", icon: Briefcase },
   { name: "Residents Record", href: "/dashboard/residents", icon: Users },
   { name: "Document Request", href: "/dashboard/documents", icon: FileText },
   { name: "Medical", href: "/dashboard/medical", icon: Stethoscope },

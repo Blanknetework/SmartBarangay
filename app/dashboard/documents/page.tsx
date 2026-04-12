@@ -1,32 +1,276 @@
 "use client";
 
-import { useState, FormEvent } from "react";
-import { Search, Plus, Check, FileText, CheckCircle2, Clock, CheckSquare, Settings2, SlidersHorizontal } from "lucide-react";
+import { useState, useEffect, FormEvent, useRef } from "react";
+import { Search, Plus, Check, FileText, CheckCircle2, Clock, CheckSquare, Settings2, SlidersHorizontal, HandCoins, Printer } from "lucide-react";
+import { db } from "@/lib/firebase";
+import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, serverTimestamp, query, orderBy, doc } from "firebase/firestore";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { storage } from "@/lib/firebase";
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
 
-// Dummy Document Requests
-const dummyRequests = [
-  { id: "001", name: "Carlo Reyes", age: 90, address: "Zone 1", type: "Barangay clearance", purpose: "Employment", status: "Approved", fee: "P50.00", date: "June 15, 2026" },
-  { id: "002", name: "Kevin Mendoza", age: 52, address: "Zone 2", type: "Certificate of Indigency", purpose: "Medical assistance", status: "Pending", fee: "Free", date: "June 10, 2026" },
-];
+interface Resident {
+  id: string;
+  firstName: string;
+  lastName: string;
+  age: number;
+  address: string;
+  city: string;
+  civilStatus?: string;
+}
+
+interface DocRequest {
+  id: string;
+  name: string;
+  age: number;
+  address: string;
+  city?: string;
+  civilStatus: string;
+  type: string;
+  purpose: string;
+  status: "Pending" | "Processing" | "Approved" | "Released";
+  isPaid: boolean;
+  fee: string;
+  createdAt: any;
+  dateStr: string;
+  pdfUrl?: string;
+  htmlContent?: string;
+}
+
+const TYPE_TO_FEE: Record<string, string> = {
+  "Barangay Clearance": "P50.00",
+  "Certificate of Indigency": "Free",
+  "Business Permit": "P20.00"
+};
 
 export default function DocumentRequestPage() {
-  const [requests] = useState(dummyRequests);
+  const [requests, setRequests] = useState<DocRequest[]>([]);
+  const [residents, setResidents] = useState<Resident[]>([]);
+  const [searchResTerm, setSearchResTerm] = useState("");
+  const [filteredResidents, setFilteredResidents] = useState<Resident[]>([]);
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [processStatus, setProcessStatus] = useState("Generate Request");
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
   const [activeTab, setActiveTab] = useState("All");
 
-  const handleProcessAndPrint = (e: FormEvent<HTMLFormElement>) => {
+  const searchBoxRef = useRef<HTMLDivElement>(null);
+
+  const [formData, setFormData] = useState({
+     name: "", age: "", address: "", city: "", civilStatus: "Single", type: "", purpose: ""
+  });
+
+  useEffect(() => {
+    const unsubRes = onSnapshot(query(collection(db, "residents")), snap => {
+       const res = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Resident[];
+       setResidents(res);
+    });
+    const unsubDoc = onSnapshot(query(collection(db, "documents"), orderBy("createdAt", "desc")), snap => {
+       const docs = snap.docs.map(d => ({ id: d.id, ...d.data() })) as DocRequest[];
+       setRequests(docs);
+    });
+    return () => { unsubRes(); unsubDoc(); }
+  }, []);
+
+  useEffect(() => {
+     if (!searchResTerm) {
+       setFilteredResidents([]);
+       return;
+     }
+     const lower = searchResTerm.toLowerCase();
+     setFilteredResidents(residents.filter(r => (r.firstName + " " + r.lastName).toLowerCase().includes(lower)));
+  }, [searchResTerm, residents]);
+
+  // Click outside to close resident search dropdown
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (searchBoxRef.current && !searchBoxRef.current.contains(event.target as Node)) {
+        setSearchResTerm("");
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleProcessAndPrint = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsSubmitting(true);
+    setProcessStatus("1/4: Requesting AI formatting...");
     
-    // Simulate network delay
-    setTimeout(() => {
+    try {
+      // 1. Send data to Gemini API for formatting
+      const res = await fetch("/api/generate-document", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          templateType: formData.type,
+          data: {
+             firstName: formData.name.split(" ")[0] || "",
+             lastName: formData.name.split(" ").slice(1).join(" "),
+             age: formData.age,
+             civilStatus: formData.civilStatus,
+             address: formData.address,
+             city: formData.city,
+             purpose: formData.purpose
+          }
+        })
+      });
+
+      const dataResult = await res.json();
+      if (dataResult.error) {
+         console.error("AI Error:", dataResult.error);
+         alert("Failed to generate document via AI: " + dataResult.error);
+         setIsSubmitting(false);
+         setProcessStatus("Generate Request");
+         return;
+      }
+
+      setProcessStatus("2/4: Compiling PDF layout...");
+      const renderDiv = document.createElement("div");
+      renderDiv.innerHTML = dataResult.html;
+      renderDiv.style.position = "fixed";
+      renderDiv.style.top = "0px";
+      renderDiv.style.left = "0px";
+      renderDiv.style.width = "800px";
+      renderDiv.style.backgroundColor = "white"; 
+      renderDiv.style.zIndex = "-9999";
+      renderDiv.style.pointerEvents = "none";
+      document.body.appendChild(renderDiv);
+      
+ 
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // 3. Convert to PDF
+      const canvas = await html2canvas(renderDiv, { scale: 2, useCORS: true, logging: false });
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF("p", "mm", "a4");
+      
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+      
+      pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
+      const pdfBlob = pdf.output("blob");
+
+      document.body.removeChild(renderDiv);
+
+      setProcessStatus("3/4: Syncing to Cloud Storage...");
+      const safeName = formData.name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+      const fileName = `documents/${Date.now()}_${safeName}_${formData.type.replace(/\s+/g, '')}.pdf`;
+      const storageRef = ref(storage, fileName);
+      
+      let downloadURL = "";
+      try {
+        const uploadTask = uploadBytes(storageRef, pdfBlob);
+        const timeoutTask = new Promise((_, reject) => setTimeout(() => reject(new Error("Firebase Storage Upload Timeout (CORS likely missing)")), 8000));
+        await Promise.race([uploadTask, timeoutTask]);
+        downloadURL = await getDownloadURL(storageRef);
+      } catch (uploadError) {
+         console.warn("Cloud Storage Upload Failed, falling back to local download.", uploadError);
+         const objectUrl = URL.createObjectURL(pdfBlob);
+         const downloadLink = document.createElement("a");
+         downloadLink.href = objectUrl;
+         downloadLink.download = fileName.split("/")[1];
+         document.body.appendChild(downloadLink);
+         downloadLink.click();
+         document.body.removeChild(downloadLink);
+      }
+
+      setProcessStatus("4/4: Finalizing record...");
+      const isFree = TYPE_TO_FEE[formData.type] === "Free";
+      await addDoc(collection(db, "documents"), {
+        ...formData,
+        status: "Pending",
+        isPaid: isFree,
+        fee: TYPE_TO_FEE[formData.type] || "",
+        dateStr: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+        createdAt: serverTimestamp(),
+        pdfUrl: downloadURL,
+        htmlContent: dataResult.html
+      });
+
       setIsSubmitting(false);
+      setProcessStatus("Generate Request");
       setIsModalOpen(false);
       setShowSuccessDialog(true);
-    }, 800);
+      setFormData({ name: "", age: "", address: "", city: "", civilStatus: "Single", type: "", purpose: "" });
+    } catch (error) {
+       console.error(error);
+       alert("Failed to process Request & PDF.");
+       setIsSubmitting(false);
+       setProcessStatus("Generate Request");
+    }
   };
+
+  const handleAction = async (req: DocRequest, action: string) => {
+    const reqRef = doc(db, "documents", req.id);
+    try {
+      if (action === "Process") {
+         await updateDoc(reqRef, { status: "Processing" });
+      } else if (action === "Approve") {
+         await updateDoc(reqRef, { status: "Approved" });
+      } else if (action === "Pay") {
+         const feeAmount = parseFloat(req.fee.replace("P", ""));
+         await addDoc(collection(db, "revenue"), {
+            amount: isNaN(feeAmount) ? 0 : feeAmount,
+            source: "Document Request",
+            details: `${req.type} for ${req.name}`,
+            date: new Date().toLocaleDateString(),
+            createdAt: serverTimestamp()
+         });
+         await updateDoc(reqRef, { isPaid: true });
+         alert(`Payment of ${req.fee} recorded into the Barangay Revenue System!`);
+      } else if (action === "Release") {
+         await updateDoc(reqRef, { status: "Released" });
+      } else if (action === "Print") {
+         if (req.pdfUrl) {
+           window.open(req.pdfUrl, "_blank");
+         } else if (req.htmlContent) {
+           const renderDiv = document.createElement("div");
+           renderDiv.innerHTML = req.htmlContent;
+           renderDiv.style.position = "fixed";
+           renderDiv.style.top = "0px";
+           renderDiv.style.left = "0px";
+           renderDiv.style.width = "800px";
+           renderDiv.style.backgroundColor = "white"; 
+           renderDiv.style.zIndex = "-9999";
+           renderDiv.style.pointerEvents = "none";
+           document.body.appendChild(renderDiv);
+           
+           await new Promise(resolve => setTimeout(resolve, 100)); // wait for layout
+           const canvas = await html2canvas(renderDiv, { scale: 2, useCORS: true, logging: false });
+           const imgData = canvas.toDataURL("image/png");
+           const pdf = new jsPDF("p", "mm", "a4");
+           const pdfWidth = pdf.internal.pageSize.getWidth();
+           const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+           pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
+           
+           const pdfBlob = pdf.output("blob");
+           const objectUrl = URL.createObjectURL(pdfBlob);
+           window.open(objectUrl, "_blank");
+           document.body.removeChild(renderDiv);
+         } else {
+           alert("PDF wasn't saved in the cloud and no local template was found. Please check your local computer's Downloads folder from when it was generated.");
+         }
+      } else if (action === "Delete") {
+         if (confirm("Are you sure you want to delete this document request?")) {
+           await deleteDoc(reqRef);
+         }
+      }
+    } catch (error) {
+      console.error(error);
+      alert("Failed action, check database constraints.");
+    }
+  };
+
+  const pendingCount = requests.filter(r => r.status === "Pending" || r.status === "Processing").length;
+  const approvedCount = requests.filter(r => r.status === "Approved").length;
+  const releasedCount = requests.filter(r => r.status === "Released").length;
+
+  const filteredRequests = requests.filter(r => {
+    if (activeTab === "All") return true;
+    return r.status === activeTab;
+  });
 
   return (
     <div className="flex flex-col xl:flex-row gap-6 animate-in fade-in duration-500 w-full">
@@ -39,14 +283,13 @@ export default function DocumentRequestPage() {
         {/* Stats Row Container */}
         <div className="bg-white dark:bg-[#1F2937] border border-slate-200 dark:border-[#374151] rounded-2xl p-5 shadow-sm dark:shadow-none">
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-5">
-            {/* Stat Cards closely mapping the design */}
             <div className="bg-[#FEF9C3] dark:bg-[#ca8a04]/20 border border-[#FDE047] dark:border-[#ca8a04]/30 rounded-xl p-3 flex items-center shadow-sm">
               <div className="bg-[#FDE047] dark:bg-[#ca8a04]/40 p-2 rounded-full mr-3">
                  <Clock size={20} className="text-[#854D0E] dark:text-[#fef08a]" />
               </div>
               <div>
-                 <p className="text-xl font-black text-[#854D0E] dark:text-[#fef08a] leading-none">300</p>
-                 <p className="text-xs font-bold text-[#A16207] dark:text-[#fde047]/80">Pending</p>
+                 <p className="text-xl font-black text-[#854D0E] dark:text-[#fef08a] leading-none">{pendingCount}</p>
+                 <p className="text-xs font-bold text-[#A16207] dark:text-[#fde047]/80">Pending/Proc</p>
               </div>
             </div>
 
@@ -55,7 +298,7 @@ export default function DocumentRequestPage() {
                  <CheckCircle2 size={20} className="text-[#1E40AF] dark:text-[#bfdbfe]" />
               </div>
               <div>
-                 <p className="text-xl font-black text-[#1E40AF] dark:text-[#bfdbfe] leading-none">500</p>
+                 <p className="text-xl font-black text-[#1E40AF] dark:text-[#bfdbfe] leading-none">{approvedCount}</p>
                  <p className="text-xs font-bold text-[#1D4ED8] dark:text-[#93c5fd]/80">Approved</p>
               </div>
             </div>
@@ -65,7 +308,7 @@ export default function DocumentRequestPage() {
                  <FileText size={20} className="text-[#065F46] dark:text-[#a7f3d0]" />
               </div>
               <div>
-                 <p className="text-xl font-black text-[#065F46] dark:text-[#a7f3d0] leading-none">100</p>
+                 <p className="text-xl font-black text-[#065F46] dark:text-[#a7f3d0] leading-none">{releasedCount}</p>
                  <p className="text-xs font-bold text-[#047857] dark:text-[#6ee7b7]/80">Released</p>
               </div>
             </div>
@@ -75,7 +318,7 @@ export default function DocumentRequestPage() {
                  <CheckSquare size={20} className="text-[#9A3412] dark:text-[#fed7aa]" />
               </div>
               <div>
-                 <p className="text-xl font-black text-[#9A3412] dark:text-[#fed7aa] leading-none">570</p>
+                 <p className="text-xl font-black text-[#9A3412] dark:text-[#fed7aa] leading-none">{requests.length}</p>
                  <p className="text-xs font-bold text-[#C2410C] dark:text-[#fdba74]/80">Total request</p>
               </div>
             </div>
@@ -85,8 +328,8 @@ export default function DocumentRequestPage() {
                  <Search size={20} className="text-slate-700 dark:text-slate-300" />
               </div>
               <div>
-                 <p className="text-xl font-black text-slate-700 dark:text-slate-300 leading-none">200</p>
-                 <p className="text-xs font-bold text-slate-500 dark:text-slate-400">Today Summary</p>
+                 <p className="text-xl font-black text-slate-700 dark:text-slate-300 leading-none">{requests.length}</p>
+                 <p className="text-xs font-bold text-slate-500 dark:text-slate-400">All Time Summary</p>
               </div>
             </div>
           </div>
@@ -104,7 +347,7 @@ export default function DocumentRequestPage() {
           
           <div className="flex flex-col sm:flex-row justify-between items-center p-2 border-b border-slate-200 dark:border-[#374151]">
             <div className="flex space-x-1 sm:space-x-4 px-4 overflow-x-auto w-full sm:w-auto">
-              {["All", "Pending", "Approved", "Released"].map(tab => (
+              {["All", "Pending", "Processing", "Approved", "Released"].map(tab => (
                 <button 
                   key={tab} 
                   onClick={() => setActiveTab(tab)}
@@ -120,7 +363,7 @@ export default function DocumentRequestPage() {
                  <Search size={16} className="text-slate-400 mr-2 shrink-0" />
                  <input
                    type="text"
-                   placeholder="Search Resident.."
+                   placeholder="Search Requests.."
                    className="bg-transparent border-none focus:outline-none text-sm w-full font-medium text-slate-700 dark:text-[#F9FAFB] placeholder:text-slate-400"
                  />
                  <SlidersHorizontal size={16} className="text-slate-400 ml-2 cursor-pointer" />
@@ -132,59 +375,81 @@ export default function DocumentRequestPage() {
             <table className="w-full whitespace-nowrap">
               <thead>
                 <tr className="border-b border-slate-200 dark:border-[#374151]">
-                  <th className="px-5 py-4 text-left text-xs font-bold text-slate-500 dark:text-[#9CA3AF] w-16">ID</th>
                   <th className="px-5 py-4 text-left text-xs font-bold text-slate-500 dark:text-[#9CA3AF]">Name</th>
-                  <th className="px-5 py-4 text-left text-xs font-bold text-slate-500 dark:text-[#9CA3AF] w-16">Age</th>
                   <th className="px-5 py-4 text-left text-xs font-bold text-slate-500 dark:text-[#9CA3AF]">Address</th>
                   <th className="px-5 py-4 text-left text-xs font-bold text-slate-500 dark:text-[#9CA3AF]">Document type</th>
-                  <th className="px-5 py-4 text-left text-xs font-bold text-slate-500 dark:text-[#9CA3AF]">Purpose</th>
                   <th className="px-5 py-4 text-center text-xs font-bold text-slate-500 dark:text-[#9CA3AF]">Status</th>
                   <th className="px-5 py-4 text-center text-xs font-bold text-slate-500 dark:text-[#9CA3AF]">Fee</th>
                   <th className="px-5 py-4 text-left text-xs font-bold text-slate-500 dark:text-[#9CA3AF]">Date</th>
-                  <th className="px-5 py-4 text-right text-xs font-bold text-slate-500 dark:text-[#9CA3AF] w-24">Actions</th>
+                  <th className="px-5 py-4 text-right text-xs font-bold text-slate-500 dark:text-[#9CA3AF] w-36">Actions</th>
                 </tr>
               </thead>
               
               <tbody>
-                {requests.map((req, idx) => (
+                {filteredRequests.map((req, idx) => {
+                  const isFree = req.fee === "Free";
+                  const canPrintRelease = req.status === "Approved" && (req.isPaid || isFree);
+
+                  return (
                   <tr 
                     key={req.id} 
-                    className={`group ${idx !== requests.length - 1 ? "border-b border-slate-100 dark:border-[#374151]" : ""} hover:bg-slate-50 dark:hover:bg-[#374151]/30 transition-colors`}
+                    className={`group ${idx !== filteredRequests.length - 1 ? "border-b border-slate-100 dark:border-[#374151]" : ""} hover:bg-slate-50 dark:hover:bg-[#374151]/30 transition-colors`}
                   >
-                    <td className="px-5 py-4 text-sm font-bold text-slate-800 dark:text-[#F9FAFB]">{req.id}</td>
                     <td className="px-5 py-4 text-sm font-bold text-slate-800 dark:text-[#F9FAFB]">{req.name}</td>
-                    <td className="px-5 py-4 text-sm font-semibold text-slate-600 dark:text-[#9CA3AF]">{req.age}</td>
                     <td className="px-5 py-4 text-sm font-semibold text-slate-600 dark:text-[#9CA3AF]">{req.address}</td>
-                    <td className="px-5 py-4 text-sm font-bold text-slate-700 dark:text-[#E5E7EB]">{req.type}</td>
-                    <td className="px-5 py-4 text-sm font-semibold text-slate-600 dark:text-[#9CA3AF] max-w-[150px] truncate">{req.purpose}</td>
+                    <td className="px-5 py-4">
+                       <span className="text-sm font-bold text-slate-700 dark:text-[#E5E7EB] block leading-tight">{req.type}</span>
+                       <span className="text-[10px] font-semibold text-slate-400 dark:text-[#9CA3AF] block max-w-[150px] truncate">{req.purpose}</span>
+                    </td>
                     <td className="px-5 py-4 text-center">
                        {req.status === "Approved" ? (
-                         <span className="bg-[#DBEAFE] dark:bg-[#1E40AF]/30 text-[#1D4ED8] dark:text-[#93C5FD] px-3 py-1 rounded-full text-xs font-bold">Approved</span>
+                         <span className="bg-[#DBEAFE] dark:bg-[#1E40AF]/30 text-[#1D4ED8] dark:text-[#93C5FD] px-3 py-1 rounded-full text-[11px] uppercase tracking-wider font-bold">Approved</span>
+                       ) : req.status === "Released" ? (
+                         <span className="bg-[#D1FAE5] dark:bg-[#065F46]/30 text-[#047857] dark:text-[#6EE7B7] px-3 py-1 rounded-full text-[11px] uppercase tracking-wider font-bold">Released</span>
+                       ) : req.status === "Processing" ? (
+                         <span className="bg-[#FFEDD5] dark:bg-[#9A3412]/30 text-[#C2410C] dark:text-[#FDBA74] px-3 py-1 rounded-full text-[11px] uppercase tracking-wider font-bold">Processing</span>
                        ) : (
-                         <span className="bg-[#FEF9C3] dark:bg-[#854D0E]/30 text-[#A16207] dark:text-[#FDE047] px-3 py-1 rounded-full text-xs font-bold">Pending</span>
+                         <span className="bg-[#FEF9C3] dark:bg-[#854D0E]/30 text-[#A16207] dark:text-[#FDE047] px-3 py-1 rounded-full text-[11px] uppercase tracking-wider font-bold">Pending</span>
                        )}
                     </td>
                     <td className="px-5 py-4 text-center">
-                       <span className={`px-3 py-1 rounded-full text-xs font-bold ${req.fee === 'Free' ? 'bg-[#FFEDD5] text-[#C2410C] dark:bg-[#9A3412]/30 dark:text-[#FDBA74]' : 'bg-[#D1FAE5] text-[#047857] dark:bg-[#065F46]/30 dark:text-[#6EE7B7]'}`}>
-                         {req.fee}
+                       <span className={`px-3 py-1.5 rounded-full text-[11px] tracking-wider font-bold ${req.fee === 'Free' ? 'bg-[#FFEDD5] text-[#C2410C] dark:bg-[#9A3412]/30 dark:text-[#FDBA74]' : (req.isPaid ? 'bg-[#D1FAE5] text-[#047857] dark:bg-[#065F46]/30 dark:text-[#6EE7B7]' : 'bg-slate-200 text-slate-700 dark:bg-[#374151] dark:text-gray-300')}`}>
+                         {req.isPaid ? 'PAID' : req.fee}
                        </span>
                     </td>
-                    <td className="px-5 py-4 text-sm font-semibold text-slate-500 dark:text-[#9CA3AF]">{req.date}</td>
-                    <td className="px-5 py-4 text-right space-y-2">
-                      <div className="flex flex-col items-end space-y-1">
-                        <button className="text-slate-600 dark:text-[#9CA3AF] hover:text-[#3B82F6] text-xs font-bold tracking-wide">EDIT</button>
-                        {req.status === "Approved" ? (
-                           <>
-                           <button className="bg-[#FCA5A5] hover:bg-[#F87171] text-[#7F1D1D] px-3 py-0.5 rounded text-xs font-bold w-[70px]">Print</button>
-                           <button className="bg-[#22C55E] hover:bg-[#16A34A] text-white px-3 py-0.5 rounded text-xs font-bold w-[70px]">Release</button>
-                           </>
-                        ) : (
-                           <button className="bg-slate-300 dark:bg-slate-600 hover:bg-slate-400 text-slate-800 dark:text-white px-3 py-0.5 rounded text-xs font-bold w-[70px]">Process</button>
+                    <td className="px-5 py-4 text-sm font-semibold text-slate-500 dark:text-[#9CA3AF]">{req.dateStr}</td>
+                    <td className="px-5 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2 flex-wrap pb-1">
+                        
+                        {req.status === "Pending" && (
+                           <button onClick={() => handleAction(req, "Process")} className="bg-slate-200 dark:bg-[#374151] hover:bg-slate-300 dark:hover:bg-[#4B5563] text-slate-700 dark:text-white px-3 py-1 rounded text-xs font-bold w-[90px] shadow-sm transition-colors">Start Process</button>
                         )}
+                        {req.status === "Processing" && (
+                           <button onClick={() => handleAction(req, "Approve")} className="bg-[#3B82F6] hover:bg-[#2563EB] text-white px-3 py-1 rounded text-xs font-bold w-[90px] shadow-sm transition-colors">Approve</button>
+                        )}
+                        {req.status === "Approved" && !req.isPaid && !isFree && (
+                           <button onClick={() => handleAction(req, "Pay")} className="bg-[#EAB308] flex items-center justify-center space-x-1 hover:bg-[#CA8A04] text-white px-3 py-1 rounded text-xs font-bold w-[120px] shadow-sm transition-colors"><HandCoins size={14}/><span>Record Pay</span></button>
+                        )}
+                        {canPrintRelease && (
+                           <div className="flex items-center gap-2">
+                             <button onClick={() => handleAction(req, "Print")} className="bg-slate-100 dark:bg-[#374151] hover:bg-slate-200 dark:hover:bg-[#4B5563] border border-slate-300 dark:border-gray-600 text-slate-700 dark:text-[#F9FAFB] flex items-center space-x-1 px-3 py-1 rounded text-xs font-bold shadow-sm transition-colors"><Printer size={14} fill="currentColor"/> <span>Print</span></button>
+                             <button onClick={() => handleAction(req, "Release")} className="bg-[#22C55E] hover:bg-[#16A34A] text-white px-3 py-1 rounded text-xs font-bold shadow-sm transition-colors">Release Doc</button>
+                           </div>
+                        )}
+                        {req.status === "Released" && (
+                           <span className="text-slate-400 dark:text-slate-500 text-xs font-bold italic mr-1">Completed</span>
+                        )}
+                        <button onClick={() => handleAction(req, "Delete")} className="text-[#EF4444] hover:text-[#DC2626] bg-[#FEE2E2] hover:bg-[#FECACA] dark:bg-[#7F1D1D]/30 dark:hover:bg-[#7F1D1D]/50 px-2 py-1 rounded transition-colors text-xs font-bold">Delete</button>
                       </div>
                     </td>
                   </tr>
-                ))}
+                )})}
+                
+                {filteredRequests.length === 0 && (
+                   <tr>
+                     <td colSpan={7} className="text-center p-8 text-slate-500 font-medium">No document requests found.</td>
+                   </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -194,163 +459,161 @@ export default function DocumentRequestPage() {
       {/* Right Sidebar Widgets */}
       <div className="w-full xl:w-[300px] flex flex-col space-y-6 shrink-0">
          {/* Fee Summary */}
-         <div className="bg-white dark:bg-[#1F2937] border border-slate-200 dark:border-[#374151] rounded-2xl p-6 shadow-sm dark:shadow-none">
+         <div className="bg-white dark:bg-[#1F2937] border border-slate-200 dark:border-[#374151] rounded-xl p-6 shadow-sm dark:shadow-none">
             <h3 className="text-sm font-bold text-slate-800 dark:text-[#F9FAFB] mb-4">Fee summary</h3>
             <div className="space-y-3">
                <div className="flex justify-between text-xs font-semibold text-slate-600 dark:text-[#9CA3AF]">
-                 <span>Barangay clearance</span>
-                 <span className="text-slate-800 dark:text-[#F9FAFB]">P50.00</span>
+                 <span>Barangay Clearance</span>
+                 <span className="text-slate-800 dark:text-[#F9FAFB] font-black">{TYPE_TO_FEE["Barangay Clearance"]}</span>
                </div>
                <div className="flex justify-between text-xs font-semibold text-slate-600 dark:text-[#9CA3AF]">
-                 <span>Certificate of indigency</span>
-                 <span className="text-slate-800 dark:text-[#F9FAFB]">Free</span>
+                 <span>Certificate of Indigency</span>
+                 <span className="text-[#3B82F6] font-black">{TYPE_TO_FEE["Certificate of Indigency"]}</span>
                </div>
                <div className="flex justify-between text-xs font-semibold text-slate-600 dark:text-[#9CA3AF]">
-                 <span>Business permit</span>
-                 <span className="text-slate-800 dark:text-[#F9FAFB]">P20.00</span>
+                 <span>Business Permit</span>
+                 <span className="text-slate-800 dark:text-[#F9FAFB] font-black">{TYPE_TO_FEE["Business Permit"]}</span>
                </div>
             </div>
          </div>
 
          {/* Notifications */}
-         <div className="bg-white dark:bg-[#1F2937] border border-slate-200 dark:border-[#374151] rounded-2xl p-6 shadow-sm dark:shadow-none">
+         <div className="bg-white dark:bg-[#1F2937] border border-slate-200 dark:border-[#374151] rounded-xl p-6 shadow-sm dark:shadow-none">
             <h3 className="text-sm font-bold text-slate-800 dark:text-[#F9FAFB] mb-4">Notifications</h3>
             <ul className="space-y-4">
               <li className="flex items-start">
                  <div className="w-1.5 h-1.5 rounded-full bg-[#EAB308] mt-1.5 mr-2 shrink-0"></div>
-                 <p className="text-xs font-semibold text-slate-600 dark:text-[#9CA3AF]">3 documents pending approval</p>
+                 <p className="text-xs font-semibold text-slate-600 dark:text-[#9CA3AF]"><strong className="text-slate-800 dark:text-white">{pendingCount} documents</strong> pending review mapping.</p>
               </li>
               <li className="flex items-start">
-                 <div className="w-1.5 h-1.5 rounded-full bg-[#EF4444] mt-1.5 mr-2 shrink-0"></div>
-                 <p className="text-xs font-semibold text-slate-600 dark:text-[#9CA3AF]">2 released</p>
+                 <div className="w-1.5 h-1.5 rounded-full bg-[#22C55E] mt-1.5 mr-2 shrink-0"></div>
+                 <p className="text-xs font-semibold text-slate-600 dark:text-[#9CA3AF]"><strong className="text-slate-800 dark:text-white">{releasedCount} documents</strong> released historically.</p>
               </li>
             </ul>
-         </div>
-
-         {/* Service Status Overview */}
-         <div className="bg-white dark:bg-[#1F2937] border border-slate-200 dark:border-[#374151] rounded-2xl p-6 shadow-sm dark:shadow-none">
-            <h3 className="text-sm font-bold text-slate-800 dark:text-[#F9FAFB] mb-5">Service status overview</h3>
-            
-            <div className="space-y-4 mb-6">
-               <div>
-                  <div className="flex justify-between text-[10px] font-bold text-slate-500 mb-1">
-                    <span>Barangay Clearance request</span>
-                  </div>
-                  <div className="w-full bg-slate-100 dark:bg-slate-700 h-1 rounded-full overflow-hidden flex">
-                    <div className="bg-[#22C55E] h-full" style={{ width: '80%' }}></div>
-                    <div className="bg-[#EAB308] h-full" style={{ width: '15%' }}></div>
-                    <div className="bg-[#EF4444] h-full" style={{ width: '5%' }}></div>
-                  </div>
-               </div>
-               <div>
-                  <div className="flex justify-between text-[10px] font-bold text-slate-500 mb-1">
-                    <span>Certificate of indigency</span>
-                  </div>
-                  <div className="w-full bg-slate-100 dark:bg-slate-700 h-1 rounded-full overflow-hidden flex">
-                    <div className="bg-[#22C55E] h-full" style={{ width: '70%' }}></div>
-                    <div className="bg-[#EAB308] h-full" style={{ width: '20%' }}></div>
-                    <div className="bg-[#EF4444] h-full" style={{ width: '10%' }}></div>
-                  </div>
-               </div>
-               <div>
-                  <div className="flex justify-between text-[10px] font-bold text-slate-500 mb-1">
-                    <span>Business permit</span>
-                  </div>
-                  <div className="w-full bg-slate-100 dark:bg-slate-700 h-1 rounded-full overflow-hidden flex">
-                    <div className="bg-[#22C55E] h-full" style={{ width: '60%' }}></div>
-                    <div className="bg-[#EAB308] h-full" style={{ width: '30%' }}></div>
-                    <div className="bg-[#EF4444] h-full" style={{ width: '10%' }}></div>
-                  </div>
-               </div>
-            </div>
-
-            <div className="flex items-center space-x-4 pt-4 border-t border-slate-100 dark:border-slate-700">
-               <div className="flex items-center"><div className="w-1.5 h-1.5 rounded-full bg-[#22C55E] mr-1"></div><span className="text-[10px] font-bold text-slate-500">Released</span></div>
-               <div className="flex items-center"><div className="w-1.5 h-1.5 rounded-full bg-[#EAB308] mr-1"></div><span className="text-[10px] font-bold text-slate-500">Approved</span></div>
-               <div className="flex items-center"><div className="w-1.5 h-1.5 rounded-full bg-[#EF4444] mr-1"></div><span className="text-[10px] font-bold text-slate-500">Pending</span></div>
-            </div>
          </div>
       </div>
 
       {/* New Request Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-[#111827] w-full max-w-[700px] rounded-[32px] shadow-2xl border border-slate-200 dark:border-[#374151] overflow-hidden flex flex-col scale-in-95 duration-200">
+          <div className="bg-slate-50 dark:bg-[#111827] w-full max-w-[700px] rounded-[24px] shadow-2xl border border-slate-200 dark:border-[#374151] overflow-hidden flex flex-col scale-in-95 duration-200 max-h-[90vh]">
             
-            <form onSubmit={handleProcessAndPrint} className="flex flex-col h-full p-8 md:p-10">
-              <div className="flex justify-between items-start mb-8">
-                 <h2 className="text-xl font-bold text-slate-800 dark:text-[#F9FAFB] tracking-tight mt-2">New Request form</h2>
-                 {/* Internal Search */}
-                 <div className="flex bg-slate-50 dark:bg-[#1F2937] border border-slate-200 dark:border-[#374151] rounded-xl items-center px-4 py-2.5 w-64">
-                   <Search size={16} className="text-slate-400 mr-2 shrink-0" />
-                   <input
-                     type="text"
-                     placeholder="Search Resident.."
-                     className="bg-transparent border-none focus:outline-none text-xs w-full font-bold text-slate-700 dark:text-[#F9FAFB] placeholder:text-slate-400"
-                   />
-                 </div>
-              </div>
+            <form onSubmit={handleProcessAndPrint} className="flex flex-col flex-1 overflow-hidden">
+              <div className="p-8 md:p-10 flex-1 overflow-y-auto min-h-0">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4 border-b border-slate-200 dark:border-[#1F2937] pb-4">
+                   <h2 className="text-xl font-bold text-slate-800 dark:text-[#F9FAFB] tracking-tight">New Request form</h2>
+                   
+                   {/* Search Auto-Filler */}
+                   <div className="relative flex bg-white dark:bg-[#1F2937] border border-slate-300 dark:border-[#374151] rounded-lg items-center px-4 py-2 w-full sm:w-64" ref={searchBoxRef}>
+                     <Search size={16} className="text-slate-400 mr-2 shrink-0" />
+                     <input
+                       type="text"
+                       placeholder="Autofill Resident.."
+                       value={searchResTerm}
+                       onChange={e => setSearchResTerm(e.target.value)}
+                       className="bg-transparent border-none focus:outline-none text-xs w-full font-bold text-slate-700 dark:text-[#F9FAFB] placeholder:text-slate-400"
+                     />
+                     
+                     {filteredResidents.length > 0 && searchResTerm && (
+                        <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-[#1F2937] border border-slate-200 dark:border-[#374151] rounded-lg shadow-xl z-50 max-h-48 overflow-y-auto w-[280px] right-0 sm:right-auto">
+                          {filteredResidents.map(r => (
+                             <div 
+                               key={r.id} 
+                               onClick={() => {
+                                setFormData({
+                                   ...formData, 
+                                   name: `${r.firstName} ${r.lastName}`,
+                                   age: r.age?.toString() || "",
+                                   address: r.address || "",
+ city: r.city || "",
+                                   civilStatus: r.civilStatus || "Single"
+                                });
+                                setSearchResTerm("");
+                               }} 
+                               className="px-4 py-3 hover:bg-slate-50 dark:hover:bg-[#374151] border-b border-slate-100 dark:border-[#1F2937] cursor-pointer flex justify-between items-center"
+                             >
+                                <div>
+                                   <p className="text-sm font-bold text-slate-700 dark:text-[#F9FAFB] leading-tight">{r.firstName} {r.lastName}</p>
+                                   <p className="text-[10px] text-slate-400 dark:text-[#9CA3AF] truncate max-w-[150px]">{r.address}, {r.city}</p>
+                                </div>
+                                <div className="text-[10px] font-bold text-[#3B82F6]">AUTOFILL</div>
+                             </div>
+                          ))}
+                        </div>
+                     )}
+                   </div>
+                </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 dark:text-[#F9FAFB] mb-2 ml-1">Full name:</label>
-                  <input required type="text" className="w-full bg-white dark:bg-[#1F2937] border-2 border-slate-200 dark:border-[#374151] rounded-xl px-4 py-3 text-sm text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#3B82F6]" />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 dark:text-[#9CA3AF] mb-1.5 ml-1">Full Name:</label>
+                    <input required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} type="text" className="w-full bg-white dark:bg-[#1F2937] border border-slate-300 dark:border-[#374151] rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#3B82F6]" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 dark:text-[#9CA3AF] mb-1.5 ml-1">Age:</label>
+                    <input required value={formData.age} onChange={e => setFormData({...formData, age: e.target.value})} type="number" min="0" className="w-full bg-white dark:bg-[#1F2937] border border-slate-300 dark:border-[#374151] rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#3B82F6]" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 dark:text-[#9CA3AF] mb-1.5 ml-1">Address:</label>
+                    <input required value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} type="text" className="w-full bg-white dark:bg-[#1F2937] border border-slate-300 dark:border-[#374151] rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#3B82F6]" placeholder="House No. / Street" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 dark:text-[#9CA3AF] mb-1.5 ml-1">City/Muni:</label>
+                      <input required value={formData.city} onChange={e => setFormData({...formData, city: e.target.value})} type="text" className="w-full bg-white dark:bg-[#1F2937] border border-slate-300 dark:border-[#374151] rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#3B82F6]" placeholder="City" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 dark:text-[#9CA3AF] mb-1.5 ml-1">Civil Status:</label>
+                      <select required value={formData.civilStatus} onChange={e => setFormData({...formData, civilStatus: e.target.value})} className="w-full bg-slate-200 dark:bg-[#374151] border-none rounded-xl px-4 py-3.5 text-sm font-bold text-slate-700 dark:text-[#F9FAFB] focus:outline-none cursor-pointer appearance-none">
+                        <option>Single</option>
+                        <option>Married</option>
+                        <option>Widowed</option>
+                        <option>Separated</option>
+                      </select>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 dark:text-[#F9FAFB] mb-2 ml-1">Age:</label>
-                  <input required type="number" className="w-full bg-white dark:bg-[#1F2937] border-2 border-slate-200 dark:border-[#374151] rounded-xl px-4 py-3 text-sm text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#3B82F6]" />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-[#3B82F6] dark:text-[#60A5FA] underline mb-2 ml-1">Address:</label>
-                  <input required type="text" className="w-full bg-white dark:bg-[#1F2937] border-2 border-[#3B82F6]/30 dark:border-[#374151] rounded-xl px-4 py-3 text-sm text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#3B82F6]" />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 dark:text-[#F9FAFB] mb-2 ml-1">Civil Status:</label>
-                  <input required type="text" className="w-full bg-white dark:bg-[#1F2937] border-2 border-slate-200 dark:border-[#374151] rounded-xl px-4 py-3 text-sm text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#3B82F6]" />
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-slate-200 dark:border-[#1F2937] mt-4 mb-8">
+                  <div>
+                    <label className="block text-[13px] font-black tracking-wide uppercase text-slate-800 dark:text-[#F9FAFB] mb-2 ml-1">Document type <span className="text-red-500">*</span></label>
+                    <select required value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})} className="w-full bg-slate-200 dark:bg-[#374151] border-none rounded-xl px-4 py-3.5 text-sm font-bold text-slate-700 dark:text-[#F9FAFB] focus:outline-none cursor-pointer appearance-none">
+                      <option value="" disabled>Select Document</option>
+                      <option value="Barangay Clearance">Barangay Clearance</option>
+                      <option value="Certificate of Indigency">Certificate of Indigency</option>
+                      <option value="Business Permit">Business Permit</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[13px] font-black tracking-wide uppercase text-slate-800 dark:text-[#F9FAFB] mb-2 ml-1">Purpose <span className="text-red-500">*</span></label>
+                    <input required minLength={5} value={formData.purpose} onChange={e => setFormData({...formData, purpose: e.target.value})} type="text" className="w-full bg-white dark:bg-[#1F2937] border-2 border-slate-300 dark:border-[#374151] rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#3B82F6]" placeholder="e.g. Employment" />
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-base font-bold text-slate-800 dark:text-[#F9FAFB] mb-2 ml-1 mt-2">Document type</label>
-                  <select required className="w-4/5 bg-slate-200 dark:bg-[#374151] border-none rounded-xl px-4 py-3.5 text-sm font-bold text-slate-700 dark:text-[#F9FAFB] focus:outline-none cursor-pointer appearance-none">
-                    <option value="" disabled selected></option>
-                    <option value="clearance">Barangay Clearance</option>
-                    <option value="indigency">Certificate of Indigency</option>
-                    <option value="permit">Business Permit</option>
-                  </select>
+                <div className="bg-[#DBEAFE]/50 dark:bg-[#1E40AF]/10 rounded-xl p-5 mb-4 border border-[#BFDBFE] dark:border-[#1E40AF]/30">
+                   <div className="flex text-sm mb-2 justify-between">
+                     <span className="font-bold text-slate-700 dark:text-slate-300">Total Document Fee:</span> 
+                     <span className="font-black text-slate-900 dark:text-white text-lg">{formData.type ? (TYPE_TO_FEE[formData.type] || "—") : "—"}</span>
+                   </div>
+                   <div className="flex text-sm"><span className="w-32 font-bold text-slate-600 dark:text-slate-400">Date:</span> <span className="font-semibold text-slate-700 dark:text-slate-300">{new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric'})}</span></div>
                 </div>
-                <div>
-                  <label className="block text-base font-bold text-slate-800 dark:text-[#F9FAFB] mb-2 ml-1 mt-2">Purpose</label>
-                  <input required type="text" className="w-full bg-white dark:bg-[#1F2937] border-2 border-slate-200 dark:border-[#374151] rounded-xl px-4 py-3.5 text-sm text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#3B82F6]" />
-                </div>
-              </div>
-
-              <div className="space-y-4 mb-10 ml-2 mt-4">
-                 <div className="flex text-sm"><span className="w-32 font-bold text-slate-800 dark:text-[#F9FAFB]">Payment Fee:</span> <span className="font-bold text-slate-600 dark:text-[#9CA3AF]"></span></div>
-                 <div className="flex text-sm"><span className="w-32 font-bold text-slate-800 dark:text-[#F9FAFB]">Date:</span> <span className="font-bold text-slate-600 dark:text-[#9CA3AF]"></span></div>
-                 <div className="flex text-sm"><span className="w-32 font-bold text-slate-800 dark:text-[#F9FAFB]">Staff Name:</span> <span className="font-bold text-slate-600 dark:text-[#9CA3AF]"></span></div>
               </div>
 
               {/* Modal Actions */}
-              <div className="flex items-center space-x-4">
-                <button 
-                  type="submit" 
-                  disabled={isSubmitting} 
-                  className="bg-[#45B09E] hover:bg-[#3d9d8d] dark:bg-[#10B981] dark:hover:bg-[#059669] text-white px-8 py-3.5 rounded-xl text-sm font-bold shadow-md shadow-[#45B09E]/20 transition-colors disabled:opacity-50"
-                >
-                  {isSubmitting ? "Processing..." : "Process & Print"}
-                </button>
-                <button 
-                  type="button"
-                  className="bg-[#FCFDEB] hover:bg-[#F2F4C3] dark:bg-[#FEF9C3] dark:hover:bg-[#FDE047] text-[#4D5B21] dark:text-[#854D0E] px-8 py-3.5 rounded-xl text-sm font-bold transition-colors shadow-sm"
-                >
-                  Save Request
-                </button>
+              <div className="px-8 sm:px-10 pb-8 pt-4 flex items-center justify-end space-x-3 border-t border-slate-200 dark:border-[#374151] bg-slate-50 dark:bg-[#111827] shrink-0">
                 <button 
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="bg-[#e5e7eb] hover:bg-[#d1d5db] dark:bg-[#374151] dark:hover:bg-[#4B5563] text-slate-700 dark:text-[#F9FAFB] px-8 py-3.5 rounded-xl text-sm font-bold transition-colors shadow-sm"
+                  className="bg-white hover:bg-slate-50 dark:bg-[#1F2937] dark:hover:bg-[#374151] border border-slate-200 dark:border-[#374151] text-slate-700 dark:text-[#F9FAFB] px-6 py-2.5 rounded-xl text-sm font-bold transition-colors shadow-sm"
                 >
                   Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={isSubmitting} 
+                  className="bg-[#3B82F6] hover:bg-[#2563EB] text-white px-8 py-2.5 rounded-xl text-sm font-bold shadow-md shadow-[#3B82F6]/20 transition-colors disabled:opacity-50 min-w-[180px]"
+                >
+                  {isSubmitting ? (<div className="flex items-center justify-center"><svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> {processStatus === "Generate Request" ? "Generating..." : processStatus}</div>) : "Generate Request"}
                 </button>
               </div>
             </form>
@@ -358,20 +621,20 @@ export default function DocumentRequestPage() {
         </div>
       )}
 
-      {/* Success Notification Modal (Identical to Residents page) */}
+      {/* Success Notification Modal */}
       {showSuccessDialog && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white dark:bg-[#111827] w-full max-w-sm rounded-[24px] shadow-2xl border border-slate-200 dark:border-[#374151] overflow-hidden flex flex-col items-center p-8 text-center scale-in-95 duration-200">
             <div className="w-24 h-24 bg-[#10B981] rounded-full flex items-center justify-center mb-6 shadow-lg shadow-[#10B981]/20 dark:shadow-none">
               <Check size={48} className="text-white" strokeWidth={4} />
             </div>
-            <h2 className="text-2xl font-black text-slate-800 dark:text-[#F9FAFB] mb-2 tracking-tight">Request Processed</h2>
+            <h2 className="text-2xl font-black text-slate-800 dark:text-[#F9FAFB] mb-2 tracking-tight">Request Logged</h2>
             <p className="text-slate-500 dark:text-[#9CA3AF] text-sm mb-8 font-medium px-4 leading-relaxed">
-              The document request has been successfully processed and queued for printing.
+              The document request is now pending review.
             </p>
             <button 
               onClick={() => setShowSuccessDialog(false)}
-              className="w-full bg-[#10B981] hover:bg-[#059669] text-white px-6 py-3 rounded-xl text-sm font-bold shadow-md shadow-[#10B981]/20 dark:shadow-none transition-colors"
+              className="w-full bg-[#10B981] hover:bg-[#059669] text-white px-6 py-3 rounded-xl text-sm font-bold shadow-md shadow-[#10B981]/20 transition-colors"
             >
               OK
             </button>

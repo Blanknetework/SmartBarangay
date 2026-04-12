@@ -1,26 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
+import { CheckCircle2 } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("admin");
 
+  const [showWelcome, setShowWelcome] = useState(false);
+
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     if(username === "admin" && password === "admin") {
-      router.push("/dashboard");
+      setShowWelcome(true);
+      setTimeout(() => {
+        router.push("/dashboard");
+      }, 1500);
     } else {
       alert("Invalid credentials. Try admin / admin");
     }
   };
 
   return (
-    <div className="flex min-h-screen w-full bg-[#f2f6f9] font-sans items-center justify-center py-10">
-      <div className="flex flex-col items-center w-full max-w-[480px] px-6">
+    <>
+      <div className="flex min-h-screen w-full bg-[#f2f6f9] font-sans items-center justify-center py-10">
+        <div className="flex flex-col items-center w-full max-w-[480px] px-6">
         
         {/* Branding Area at the top */}
         <div className="flex flex-col items-center justify-center text-center w-full -mb-8">
@@ -76,7 +83,21 @@ export default function LoginPage() {
           </button>
         </div>
 
+        </div>
       </div>
-    </div>
+      
+      {/* Toast Notification */}
+      {showWelcome && (
+        <div className="fixed top-6 right-6 bg-white dark:bg-[#1E293B] shadow-xl rounded-xl flex items-center p-4 border border-green-100 dark:border-green-900/30 animate-in slide-in-from-top-4 fade-in duration-300 z-50">
+          <div className="bg-green-100 dark:bg-green-900/30 rounded-full p-2 mr-4 flex-shrink-0">
+            <CheckCircle2 className="text-green-600 dark:text-green-400" size={24} />
+          </div>
+          <div>
+            <h4 className="text-slate-800 dark:text-slate-100 font-bold text-sm">Welcome!</h4>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">You have successfully logged in.</p>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
