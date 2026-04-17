@@ -16,7 +16,9 @@ import {
   Pie,
   Cell,
 } from "recharts";
-import { Users, FileText, CheckCircle, HeartPulse, Package, ArrowUpRight, ArrowDownRight } from "lucide-react";
+import { Users, FileText, CheckCircle, HeartPulse, Package, ArrowUpRight, ArrowDownRight, Activity } from "lucide-react";
+import { db } from "@/lib/firebase";
+import { collection, onSnapshot, query, orderBy, limit } from "firebase/firestore";
 
 const revenueData = [
   { name: "Jan", thisMonth: 4000, lastMonth: 2400 },
@@ -47,12 +49,90 @@ const distributionData = [
 export default function DashboardClient() {
   const { theme } = useTheme();
   const [mounted, setMounted] = useState(false);
+  const [counts, setCounts] = useState({ residents: 0, documents: 0, inventory: 0, pendingDocs: 0 });
+  const [activities, setActivities] = useState<any[]>([]);
+  const [docs, setDocs] = useState<any[]>([]);
 
   useEffect(() => {
     setMounted(true);
+    
+    const usR = onSnapshot(collection(db, "residents"), s => setCounts(c => ({...c, residents: s.size})));
+    const usD = onSnapshot(collection(db, "documents"), s => {
+       let pending = 0;
+       const docsArr = s.docs.map(doc => {
+          if (doc.data().status === "Pending") pending++;
+          return doc.data();
+       });
+       setDocs(docsArr);
+       setCounts(c => ({...c, documents: s.size, pendingDocs: pending}));
+    });
+    const usI = onSnapshot(collection(db, "inventory"), s => setCounts(c => ({...c, inventory: s.size})));
+    
+    const usA = onSnapshot(query(collection(db, "activities"), orderBy("createdAt", "desc"), limit(10)), s => {
+      setActivities(s.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    return () => { usR(); usD(); usI(); usA(); };
   }, []);
 
   const isDark = mounted && theme === "dark";
+
+  // Derived Dynamic Chart Data
+  let totalRev = 0;
+  const svcGroups = { 'Clearance': 0, 'Permit': 0, 'Certificate': 0, 'Others': 0 };
+  const revGroups = { 'Clearance': 0, 'Permit': 0, 'Certificate': 0, 'Others': 0 };
+  let clearanceTotal=0, clearanceApp=0, certTotal=0, certApp=0, permitTotal=0, permitApp=0;
+
+  docs.forEach(d => {
+    const f = parseFloat((d.fee || "0").replace(/[^0-9.]/g, "")) || 0;
+    totalRev += f;
+    const t = d.type || "";
+    
+    if (t.includes('Clearance')) { 
+      svcGroups['Clearance']++; revGroups['Clearance'] += f; 
+      clearanceTotal++; if(d.status==='Approved' || d.status==='Released') clearanceApp++;
+    } else if (t.includes('Permit') || t.includes('Business')) { 
+      svcGroups['Permit']++; revGroups['Permit'] += f; 
+      permitTotal++; if(d.status==='Approved' || d.status==='Released') permitApp++;
+    } else if (t.includes('Certificate') || t.includes('Indigency')) { 
+      svcGroups['Certificate']++; revGroups['Certificate'] += f; 
+      certTotal++; if(d.status==='Approved' || d.status==='Released') certApp++;
+    } else { 
+      svcGroups['Others']++; revGroups['Others'] += f; 
+    }
+  });
+
+  const dynamicServiceData = [
+    { name: "Certificate", value: svcGroups['Certificate'], fill: "#3B82F6" },
+    { name: "Clearance", value: svcGroups['Clearance'], fill: "#8B5CF6" },
+    { name: "Permit", value: svcGroups['Permit'], fill: "#10B981" },
+    { name: "Others", value: svcGroups['Others'], fill: "#F59E0B" },
+  ];
+
+  const dynamicDistributionData = [
+    { name: "Clearances", value: totalRev > 0 ? Number(((revGroups['Clearance']/totalRev)*100).toFixed(1)) : 0, color: "#8B5CF6" },
+    { name: "Permits", value: totalRev > 0 ? Number(((revGroups['Permit']/totalRev)*100).toFixed(1)) : 0, color: "#10B981" },
+    { name: "Certificates", value: totalRev > 0 ? Number(((revGroups['Certificate']/totalRev)*100).toFixed(1)) : 0, color: "#3B82F6" },
+    { name: "Others", value: totalRev > 0 ? Number(((revGroups['Others']/totalRev)*100).toFixed(1)) : 0, color: "#F59E0B" },
+  ].filter(d => d.value > 0);
+
+  if (dynamicDistributionData.length === 0) {
+      dynamicDistributionData.push({ name: "No Data", value: 100, color: "#4B5563" });
+  }
+
+  const dynamicServiceHealth = [
+     { label: "Clearances", val: clearanceTotal > 0 ? Math.round((clearanceApp/clearanceTotal)*100) : 0, color: "bg-[#8B5CF6]" },
+     { label: "Certificates", val: certTotal > 0 ? Math.round((certApp/certTotal)*100) : 0, color: "bg-[#3B82F6]" },
+     { label: "Permits", val: permitTotal > 0 ? Math.round((permitApp/permitTotal)*100) : 0, color: "bg-[#10B981]" },
+  ];
+
+  const dynamicRevenueData = revenueData.map((rd, idx) => {
+      // Modify the last object in revenueData to match today's live revenue dynamically
+      if (idx === revenueData.length - 1 && docs.length > 0) {
+          return { ...rd, thisMonth: totalRev };
+      }
+      return rd;
+  });
 
   return (
     <div className="flex flex-col space-y-6 lg:space-y-8 animate-in fade-in duration-500">
@@ -72,10 +152,10 @@ export default function DashboardClient() {
       {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
         {[
-          { title: "Total Residents", count: "12,400", change: "+4.1%", isUp: true, icon: Users, color: "text-[#3B82F6]", bg: "bg-blue-50 dark:bg-blue-900/20" },
-          { title: "Pending Request", count: "142", change: "-2.5%", isUp: false, icon: FileText, color: "text-[#8B5CF6]", bg: "bg-purple-50 dark:bg-purple-900/20" },
-          { title: "Today's Transactions", count: "89", change: "+12%", isUp: true, icon: CheckCircle, color: "text-[#22C55E]", bg: "bg-green-50 dark:bg-green-900/20" },
-          { title: "Active Patients", count: "45", change: "-1.2%", isUp: false, icon: HeartPulse, color: "text-[#EF4444]", bg: "bg-red-50 dark:bg-red-900/20" },
+          { title: "Total Residents", count: counts.residents || "0", change: "Live", isUp: true, icon: Users, color: "text-[#3B82F6]", bg: "bg-blue-50 dark:bg-blue-900/20" },
+          { title: "Document Requests", count: counts.documents || "0", change: "Live", isUp: true, icon: FileText, color: "text-[#8B5CF6]", bg: "bg-purple-50 dark:bg-purple-900/20" },
+          { title: "Inventory Items", count: counts.inventory || "0", change: "Live", isUp: true, icon: Package, color: "text-[#22C55E]", bg: "bg-green-50 dark:bg-green-900/20" },
+          { title: "Pending Approvals", count: counts.pendingDocs || "0", change: "Live", isUp: true, icon: CheckCircle, color: "text-[#F59E0B]", bg: "bg-yellow-50 dark:bg-yellow-900/20" },
         ].map((stat, i) => (
           <div key={i} className="bg-white dark:bg-[#1F2937] rounded-2xl border border-slate-100 dark:border-[#374151] p-6 shadow-sm hover:shadow-md dark:shadow-none dark:hover:border-slate-500 transition-all">
             <div className="flex justify-between items-start mb-4">
@@ -113,9 +193,9 @@ export default function DashboardClient() {
               </div>
             </div>
             <div className="h-72 w-full mt-2">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={revenueData} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDark ? "#374151" : "#f0f0f0"} />
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={dynamicRevenueData} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDark ? "#374151" : "#f1f1f1"} />
                   <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: isDark ? '#9CA3AF' : '#a0a0a0', fontSize: 12, fontWeight: 600 }} dy={10} />
                   <YAxis axisLine={false} tickLine={false} tick={{ fill: isDark ? '#9CA3AF' : '#a0a0a0', fontSize: 12, fontWeight: 600 }} />
                   <Tooltip 
@@ -142,9 +222,9 @@ export default function DashboardClient() {
               <h3 className="font-bold text-slate-800 dark:text-[#F9FAFB] mb-6">Service Volume</h3>
               <div className="h-52 w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={serviceData} margin={{ top: 0, right: 0, left: -25, bottom: 0 }}>
+                  <BarChart data={dynamicServiceData} margin={{ top: 0, right: 0, left: -25, bottom: 0 }}>
                     <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: isDark ? '#9CA3AF' : '#a0a0a0', fontSize: 11, fontWeight: 600 }} dy={10} />
-                    <YAxis axisLine={false} tickLine={false} tick={{ fill: isDark ? '#9CA3AF' : '#a0a0a0', fontSize: 11, fontWeight: 600 }} tickFormatter={(val) => `${val/1000}k`} />
+                    <YAxis axisLine={false} tickLine={false} tick={{ fill: isDark ? '#9CA3AF' : '#a0a0a0', fontSize: 11, fontWeight: 600 }} tickFormatter={(val) => `${val}`} />
                     <Tooltip 
                       cursor={{ fill: isDark ? '#374151' : '#f9f9f9' }} 
                       contentStyle={{ 
@@ -156,7 +236,7 @@ export default function DashboardClient() {
                       }} 
                     />
                     <Bar dataKey="value" radius={[6, 6, 0, 0]}>
-                      {serviceData.map((entry, index) => (
+                      {dynamicServiceData.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={entry.fill} />
                       ))}
                     </Bar>
@@ -173,7 +253,7 @@ export default function DashboardClient() {
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
-                        data={distributionData}
+                        data={dynamicDistributionData}
                         cx="50%"
                         cy="50%"
                         innerRadius={35}
@@ -183,7 +263,7 @@ export default function DashboardClient() {
                         stroke="none"
                         cornerRadius={4}
                       >
-                        {distributionData.map((entry, index) => (
+                        {dynamicDistributionData.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={entry.color} />
                         ))}
                       </Pie>
@@ -198,7 +278,7 @@ export default function DashboardClient() {
                   </ResponsiveContainer>
                 </div>
                 <div className="w-1/2 flex flex-col space-y-3">
-                  {distributionData.map((d, i) => (
+                  {dynamicDistributionData.map((d, i) => (
                     <div key={i} className="flex justify-between items-center text-xs">
                       <div className="flex items-center">
                         <span className="w-3 h-3 rounded-md shadow-sm mr-2.5" style={{ backgroundColor: d.color }}></span>
@@ -219,12 +299,7 @@ export default function DashboardClient() {
            <div className="bg-white dark:bg-[#1F2937] rounded-2xl shadow-sm dark:shadow-none border border-slate-100 dark:border-[#374151] p-6 flex flex-col transition-colors">
               <h3 className="font-bold text-slate-800 dark:text-[#F9FAFB] mb-6">Service Health</h3>
               <div className="space-y-5">
-                {[
-                  { label: "Clearances", val: 80, color: "bg-[#3B82F6]" },
-                  { label: "Certificates", val: 65, color: "bg-[#22C55E]" },
-                  { label: "Consultations", val: 90, color: "bg-[#F59E0B]" },
-                  { label: "Payment", val: 30, color: "bg-[#EF4444]" },
-                ].map((s, i) => (
+                {dynamicServiceHealth.map((s, i) => (
                   <div key={i}>
                     <div className="flex justify-between text-xs font-bold text-slate-500 dark:text-[#9CA3AF] mb-2">
                       <span>{s.label}</span>
@@ -245,39 +320,26 @@ export default function DashboardClient() {
             </div>
             
             <div className="flex-1 overflow-y-auto space-y-6 pr-2">
-              <div className="flex items-start">
-                <div className="w-9 h-9 rounded-full bg-purple-50 dark:bg-purple-900/20 flex items-center justify-center text-[#8B5CF6] mr-3 shrink-0 shadow-sm dark:shadow-none">
-                  <Package size={16} />
+              {activities.length === 0 ? (
+                 <p className="text-sm font-bold text-slate-400 text-center mt-10">No recent activity</p>
+              ) : activities.map((act) => (
+                <div key={act.id} className="flex items-start">
+                  <div className={`w-9 h-9 rounded-full flex items-center justify-center mr-3 shrink-0 shadow-sm dark:shadow-none ${
+                     act.type === 'inventory' ? 'bg-purple-50 dark:bg-purple-900/20 text-[#8B5CF6]' : 
+                     act.type === 'document' ? 'bg-blue-50 dark:bg-blue-900/20 text-[#3B82F6]' : 
+                     'bg-green-50 dark:bg-green-900/20 text-[#22C55E]'
+                  }`}>
+                    {act.type === 'inventory' ? <Package size={16} /> : act.type === 'document' ? <FileText size={16} /> : <Activity size={16} />}
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-800 dark:text-[#F9FAFB]">{act.title}</h4>
+                    <p className="text-xs font-medium text-slate-500 dark:text-[#9CA3AF] mt-0.5">{act.description}</p>
+                    <p className="text-[10px] text-slate-400 dark:text-[#6B7280] mt-1 uppercase font-bold">
+                       {act.createdAt ? new Date(act.createdAt.toDate()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Now'}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h4 className="text-sm font-bold text-slate-800 dark:text-[#F9FAFB]">Inventory modified</h4>
-                  <p className="text-xs font-medium text-slate-500 dark:text-[#9CA3AF] mt-0.5">Medical supplies restocked by Dr. Jane</p>
-                  <p className="text-[10px] text-slate-400 dark:text-[#6B7280] mt-1 uppercase font-bold">10 min ago</p>
-                </div>
-              </div>
-
-              <div className="flex items-start">
-                <div className="w-9 h-9 rounded-full bg-blue-50 dark:bg-blue-900/20 text-[#3B82F6] flex items-center justify-center mr-3 shrink-0 shadow-sm dark:shadow-none">
-                  <FileText size={16} />
-                </div>
-                <div>
-                  <h4 className="text-sm font-bold text-slate-800 dark:text-[#F9FAFB]">Clearance Request</h4>
-                  <p className="text-xs font-medium text-slate-500 dark:text-[#9CA3AF] mt-0.5">Juan Dela Cruz submitted a request</p>
-                  <p className="text-[10px] text-slate-400 dark:text-[#6B7280] mt-1 uppercase font-bold">1 hour ago</p>
-                </div>
-              </div>
-
-              <div className="flex items-start">
-                <div className="w-9 h-9 rounded-full bg-green-50 dark:bg-green-900/20 text-[#22C55E] flex items-center justify-center mr-3 shrink-0 shadow-sm dark:shadow-none">
-                  <span className="text-xs font-black">JD</span>
-                </div>
-                <div>
-                  <h4 className="text-sm font-bold text-slate-800 dark:text-[#F9FAFB]">Resident profile created</h4>
-                  <p className="text-xs font-medium text-slate-500 dark:text-[#9CA3AF] mt-0.5">New entry for block 4 lot 12</p>
-                  <p className="text-[10px] text-slate-400 dark:text-[#6B7280] mt-1 uppercase font-bold">Yesterday</p>
-                </div>
-              </div>
-              
+              ))}
             </div>
             
           </div>

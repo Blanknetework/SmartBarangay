@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useEffect, FormEvent } from "react";
+import { useState, useEffect, FormEvent, useRef } from "react";
 import { Search, SlidersHorizontal, Plus, Check, AlertTriangle, User } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { collection, onSnapshot, addDoc, serverTimestamp, query, orderBy, deleteDoc, doc } from "firebase/firestore";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { storage } from "@/lib/firebase";
 
 interface Resident {
   id: string;
@@ -39,6 +41,17 @@ export default function ResidentsPage() {
 
   const [firstNamePreview, setFirstNamePreview] = useState("");
   const [genderPreview, setGenderPreview] = useState("Male");
+  
+  const [customProfileImage, setCustomProfileImage] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const imageUrl = URL.createObjectURL(file);
+      setCustomProfileImage(imageUrl);
+    }
+  };
 
   // Fetch residents from Firestore in real-time
   useEffect(() => {
@@ -76,15 +89,54 @@ export default function ResidentsPage() {
       city: formData.get("city"),
       province: formData.get("province"),
       createdAt: serverTimestamp(),
+      profilePicUrl: "",
     };
 
     try {
+      if (customProfileImage && fileInputRef.current?.files?.[0]) {
+        try {
+          const file = fileInputRef.current.files[0];
+          
+          // Compress the Image before saving it directly to Firestore (to obey the 1MB document limit)
+          data.profilePicUrl = await new Promise<string>((resolve, reject) => {
+             const reader = new FileReader();
+             reader.readAsDataURL(file);
+             reader.onload = (event) => {
+                const img = new Image();
+                img.src = event.target?.result as string;
+                img.onload = () => {
+                   const canvas = document.createElement("canvas");
+                   const MAX_SIZE = 250;
+                   let width = img.width;
+                   let height = img.height;
+                   if (width > height) {
+                      if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; }
+                   } else {
+                      if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; }
+                   }
+                   canvas.width = width;
+                   canvas.height = height;
+                   const ctx = canvas.getContext("2d");
+                   ctx?.drawImage(img, 0, 0, width, height);
+                   // Convert to JPEG with 0.6 quality (creates a tiny string perfectly safe for database)
+                   resolve(canvas.toDataURL("image/jpeg", 0.6));
+                };
+                img.onerror = () => reject(new Error("Image Load Error"));
+             };
+             reader.onerror = () => reject(new Error("File Read Error"));
+          });
+        } catch (uploadError) {
+          console.warn("Base64 Compression Failed. Profile pic will be skipped.", uploadError);
+        }
+      }
+
       await addDoc(collection(db, "residents"), data);
       setIsSubmitting(false);
       setIsModalOpen(false); // Close modal on success
       setShowSuccessDialog(true);
       setFirstNamePreview("");
       setGenderPreview("Male");
+      setCustomProfileImage(null);
     } catch (error) {
       console.error("Error adding resident:", error);
       alert("Failed to add resident. Please ensure your Firestore Database Rules are set to true.");
@@ -224,8 +276,24 @@ export default function ResidentsPage() {
                   </div>
                   
                   {/* Dynamic Profile Picture */}
-                  <div className="w-[110px] h-[110px] bg-white dark:bg-[#1F2937] border-2 border-slate-200 dark:border-[#374151] flex items-center justify-center overflow-hidden shrink-0 mt-[-20px] shadow-sm ml-4">
-                     {firstNamePreview.length > 2 ? (
+                  <div 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-[110px] h-[110px] bg-white dark:bg-[#1F2937] border-2 border-slate-200 dark:border-[#374151] flex items-center justify-center overflow-hidden shrink-0 mt-[-20px] shadow-sm ml-4 cursor-pointer relative group"
+                  >
+                     <input 
+                       type="file" 
+                       accept="image/*" 
+                       ref={fileInputRef} 
+                       className="hidden" 
+                       onChange={handleImageUpload} 
+                     />
+                     {customProfileImage ? (
+                       <img 
+                         src={customProfileImage} 
+                         alt="Custom Profile" 
+                         className="w-full h-full object-cover"
+                       />
+                     ) : firstNamePreview.length > 2 ? (
                        <img 
                          src={`https://randomuser.me/api/portraits/${genderPreview === 'Female' ? 'women' : 'men'}/${(firstNamePreview.length * 7) % 99 || 1}.jpg`} 
                          alt="Profile Preview" 
@@ -234,6 +302,11 @@ export default function ResidentsPage() {
                      ) : (
                        <User size={55} className="text-slate-300 dark:text-slate-600" strokeWidth={1} />
                      )}
+                     
+                     {/* Hover Overlay */}
+                     <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <span className="text-white text-[11px] font-bold text-center leading-tight">Upload<br/>Photo</span>
+                     </div>
                   </div>
                 </div>
 

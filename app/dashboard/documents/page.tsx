@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useEffect, FormEvent, useRef } from "react";
-import { Search, Plus, Check, FileText, CheckCircle2, Clock, CheckSquare, Settings2, SlidersHorizontal, HandCoins, Printer } from "lucide-react";
+import { Search, Plus, Check, FileText, CheckCircle2, Clock, CheckSquare, Settings2, SlidersHorizontal, HandCoins, Printer, User } from "lucide-react";
 import { db } from "@/lib/firebase";
-import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, serverTimestamp, query, orderBy, doc } from "firebase/firestore";
+import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, serverTimestamp, query, orderBy, doc, limit } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { storage } from "@/lib/firebase";
 import jsPDF from "jspdf";
@@ -17,6 +17,8 @@ interface Resident {
   address: string;
   city: string;
   civilStatus?: string;
+  gender?: string;
+  profilePicUrl?: string;
 }
 
 interface DocRequest {
@@ -60,6 +62,8 @@ export default function DocumentRequestPage() {
   const [formData, setFormData] = useState({
      name: "", age: "", address: "", city: "", civilStatus: "Single", type: "", purpose: ""
   });
+  const [selectedResidentUser, setSelectedResidentUser] = useState<Resident | null>(null);
+  const [activities, setActivities] = useState<any[]>([]);
 
   useEffect(() => {
     const unsubRes = onSnapshot(query(collection(db, "residents")), snap => {
@@ -70,7 +74,10 @@ export default function DocumentRequestPage() {
        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() })) as DocRequest[];
        setRequests(docs);
     });
-    return () => { unsubRes(); unsubDoc(); }
+    const unsubAct = onSnapshot(query(collection(db, "activities"), orderBy("createdAt", "desc"), limit(4)), snap => {
+       setActivities(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return () => { unsubRes(); unsubDoc(); unsubAct(); }
   }, []);
 
   useEffect(() => {
@@ -82,7 +89,7 @@ export default function DocumentRequestPage() {
      setFilteredResidents(residents.filter(r => (r.firstName + " " + r.lastName).toLowerCase().includes(lower)));
   }, [searchResTerm, residents]);
 
-  // Click outside to close resident search dropdown
+
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (searchBoxRef.current && !searchBoxRef.current.contains(event.target as Node)) {
@@ -129,13 +136,13 @@ export default function DocumentRequestPage() {
       setProcessStatus("2/4: Compiling PDF layout...");
       const renderDiv = document.createElement("div");
       renderDiv.innerHTML = dataResult.html;
-      renderDiv.style.position = "fixed";
-      renderDiv.style.top = "0px";
-      renderDiv.style.left = "0px";
+      renderDiv.style.position = "absolute";
+      renderDiv.style.top = "-9999px";
+      renderDiv.style.left = "-9999px";
       renderDiv.style.width = "800px";
       renderDiv.style.backgroundColor = "white"; 
       renderDiv.style.zIndex = "-9999";
-      renderDiv.style.pointerEvents = "none";
+      renderDiv.style.opacity = "0"; 
       document.body.appendChild(renderDiv);
       
  
@@ -154,27 +161,17 @@ export default function DocumentRequestPage() {
 
       document.body.removeChild(renderDiv);
 
-      setProcessStatus("3/4: Syncing to Cloud Storage...");
+      setProcessStatus("3/4: Rendering Local File...");
       const safeName = formData.name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-      const fileName = `documents/${Date.now()}_${safeName}_${formData.type.replace(/\s+/g, '')}.pdf`;
-      const storageRef = ref(storage, fileName);
+      const fileName = `documents_${Date.now()}_${safeName}_${formData.type.replace(/\s+/g, '')}.pdf`;
       
-      let downloadURL = "";
-      try {
-        const uploadTask = uploadBytes(storageRef, pdfBlob);
-        const timeoutTask = new Promise((_, reject) => setTimeout(() => reject(new Error("Firebase Storage Upload Timeout (CORS likely missing)")), 8000));
-        await Promise.race([uploadTask, timeoutTask]);
-        downloadURL = await getDownloadURL(storageRef);
-      } catch (uploadError) {
-         console.warn("Cloud Storage Upload Failed, falling back to local download.", uploadError);
-         const objectUrl = URL.createObjectURL(pdfBlob);
-         const downloadLink = document.createElement("a");
-         downloadLink.href = objectUrl;
-         downloadLink.download = fileName.split("/")[1];
-         document.body.appendChild(downloadLink);
-         downloadLink.click();
-         document.body.removeChild(downloadLink);
-      }
+      const objectUrl = URL.createObjectURL(pdfBlob);
+      const downloadLink = document.createElement("a");
+      downloadLink.href = objectUrl;
+      downloadLink.download = fileName;
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+      document.body.removeChild(downloadLink);
 
       setProcessStatus("4/4: Finalizing record...");
       const isFree = TYPE_TO_FEE[formData.type] === "Free";
@@ -185,7 +182,7 @@ export default function DocumentRequestPage() {
         fee: TYPE_TO_FEE[formData.type] || "",
         dateStr: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
         createdAt: serverTimestamp(),
-        pdfUrl: downloadURL,
+        pdfUrl: "", // Completely removed cloud storage
         htmlContent: dataResult.html
       });
 
@@ -194,6 +191,7 @@ export default function DocumentRequestPage() {
       setIsModalOpen(false);
       setShowSuccessDialog(true);
       setFormData({ name: "", age: "", address: "", city: "", civilStatus: "Single", type: "", purpose: "" });
+      setSelectedResidentUser(null);
     } catch (error) {
        console.error(error);
        alert("Failed to process Request & PDF.");
@@ -481,14 +479,17 @@ export default function DocumentRequestPage() {
          <div className="bg-white dark:bg-[#1F2937] border border-slate-200 dark:border-[#374151] rounded-xl p-6 shadow-sm dark:shadow-none">
             <h3 className="text-sm font-bold text-slate-800 dark:text-[#F9FAFB] mb-4">Notifications</h3>
             <ul className="space-y-4">
-              <li className="flex items-start">
-                 <div className="w-1.5 h-1.5 rounded-full bg-[#EAB308] mt-1.5 mr-2 shrink-0"></div>
-                 <p className="text-xs font-semibold text-slate-600 dark:text-[#9CA3AF]"><strong className="text-slate-800 dark:text-white">{pendingCount} documents</strong> pending review mapping.</p>
-              </li>
-              <li className="flex items-start">
-                 <div className="w-1.5 h-1.5 rounded-full bg-[#22C55E] mt-1.5 mr-2 shrink-0"></div>
-                 <p className="text-xs font-semibold text-slate-600 dark:text-[#9CA3AF]"><strong className="text-slate-800 dark:text-white">{releasedCount} documents</strong> released historically.</p>
-              </li>
+              {activities.length === 0 ? (
+                 <li className="text-xs font-semibold text-slate-500 text-center py-2">No active events</li>
+              ) : activities.map(act => (
+                <li key={act.id} className="flex items-start">
+                   <div className={`w-1.5 h-1.5 rounded-full mt-1.5 mr-2 shrink-0 ${act.type === 'document' ? 'bg-[#3B82F6]' : 'bg-[#EAB308]'}`}></div>
+                   <div>
+                       <p className="text-xs font-semibold text-slate-800 dark:text-[#F9FAFB] leading-tight">{act.title}</p>
+                       <p className="text-[10px] text-slate-500 dark:text-[#9CA3AF] mt-0.5">{act.createdAt ? new Date(act.createdAt.toDate()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Now'}</p>
+                   </div>
+                </li>
+              ))}
             </ul>
          </div>
       </div>
@@ -528,6 +529,7 @@ export default function DocumentRequestPage() {
  city: r.city || "",
                                    civilStatus: r.civilStatus || "Single"
                                 });
+                                setSelectedResidentUser(r);
                                 setSearchResTerm("");
                                }} 
                                className="px-4 py-3 hover:bg-slate-50 dark:hover:bg-[#374151] border-b border-slate-100 dark:border-[#1F2937] cursor-pointer flex justify-between items-center"
@@ -544,34 +546,55 @@ export default function DocumentRequestPage() {
                    </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-500 dark:text-[#9CA3AF] mb-1.5 ml-1">Full Name:</label>
-                    <input required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} type="text" className="w-full bg-white dark:bg-[#1F2937] border border-slate-300 dark:border-[#374151] rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#3B82F6]" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-500 dark:text-[#9CA3AF] mb-1.5 ml-1">Age:</label>
-                    <input required value={formData.age} onChange={e => setFormData({...formData, age: e.target.value})} type="number" min="0" className="w-full bg-white dark:bg-[#1F2937] border border-slate-300 dark:border-[#374151] rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#3B82F6]" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-500 dark:text-[#9CA3AF] mb-1.5 ml-1">Address:</label>
-                    <input required value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} type="text" className="w-full bg-white dark:bg-[#1F2937] border border-slate-300 dark:border-[#374151] rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#3B82F6]" placeholder="House No. / Street" />
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-500 dark:text-[#9CA3AF] mb-1.5 ml-1">City/Muni:</label>
-                      <input required value={formData.city} onChange={e => setFormData({...formData, city: e.target.value})} type="text" className="w-full bg-white dark:bg-[#1F2937] border border-slate-300 dark:border-[#374151] rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#3B82F6]" placeholder="City" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-500 dark:text-[#9CA3AF] mb-1.5 ml-1">Civil Status:</label>
-                      <select required value={formData.civilStatus} onChange={e => setFormData({...formData, civilStatus: e.target.value})} className="w-full bg-slate-200 dark:bg-[#374151] border-none rounded-xl px-4 py-3.5 text-sm font-bold text-slate-700 dark:text-[#F9FAFB] focus:outline-none cursor-pointer appearance-none">
-                        <option>Single</option>
-                        <option>Married</option>
-                        <option>Widowed</option>
-                        <option>Separated</option>
-                      </select>
-                    </div>
-                  </div>
+                <div className="flex items-start justify-between mb-4">
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-1">
+                     <div>
+                       <label className="block text-xs font-bold text-slate-500 dark:text-[#9CA3AF] mb-1.5 ml-1">Full Name:</label>
+                       <input required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} type="text" className="w-full bg-white dark:bg-[#1F2937] border border-slate-300 dark:border-[#374151] rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#3B82F6]" />
+                     </div>
+                     <div>
+                       <label className="block text-xs font-bold text-slate-500 dark:text-[#9CA3AF] mb-1.5 ml-1">Age:</label>
+                       <input required value={formData.age} onChange={e => setFormData({...formData, age: e.target.value})} type="number" min="0" className="w-full bg-white dark:bg-[#1F2937] border border-slate-300 dark:border-[#374151] rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#3B82F6]" />
+                     </div>
+                     <div>
+                       <label className="block text-xs font-bold text-slate-500 dark:text-[#9CA3AF] mb-1.5 ml-1">Address:</label>
+                       <input required value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} type="text" className="w-full bg-white dark:bg-[#1F2937] border border-slate-300 dark:border-[#374151] rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#3B82F6]" placeholder="House No. / Street" />
+                     </div>
+                     <div className="grid grid-cols-2 gap-2">
+                       <div>
+                         <label className="block text-xs font-bold text-slate-500 dark:text-[#9CA3AF] mb-1.5 ml-1">City/Muni:</label>
+                         <input required value={formData.city} onChange={e => setFormData({...formData, city: e.target.value})} type="text" className="w-full bg-white dark:bg-[#1F2937] border border-slate-300 dark:border-[#374151] rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#3B82F6]" placeholder="City" />
+                       </div>
+                       <div>
+                         <label className="block text-xs font-bold text-slate-500 dark:text-[#9CA3AF] mb-1.5 ml-1">Civil Status:</label>
+                         <select required value={formData.civilStatus} onChange={e => setFormData({...formData, civilStatus: e.target.value})} className="w-full bg-slate-200 dark:bg-[#374151] border-none rounded-xl px-4 py-3.5 text-sm font-bold text-slate-700 dark:text-[#F9FAFB] focus:outline-none cursor-pointer appearance-none">
+                           <option>Single</option>
+                           <option>Married</option>
+                           <option>Widowed</option>
+                           <option>Separated</option>
+                         </select>
+                       </div>
+                     </div>
+                   </div>
+                   
+                   {/* Profile Picture Placeholder */}
+                   <div className="w-[110px] h-[110px] bg-white dark:bg-[#1F2937] border-2 border-slate-200 dark:border-[#374151] flex items-center justify-center overflow-hidden shrink-0 shadow-sm ml-4 mt-6">
+                      {selectedResidentUser?.profilePicUrl ? (
+                         <img 
+                           src={selectedResidentUser.profilePicUrl}
+                           alt="Profile" 
+                           className="w-full h-full object-cover"
+                         />
+                      ) : selectedResidentUser?.firstName && selectedResidentUser.firstName.length > 2 ? (
+                         <img 
+                           src={`https://randomuser.me/api/portraits/${selectedResidentUser.gender === 'Female' ? 'women' : 'men'}/${(selectedResidentUser.firstName.length * 7) % 99 || 1}.jpg`} 
+                           alt="Profile Preview" 
+                           className="w-[90%] h-[90%] object-cover"
+                         />
+                      ) : (
+                         <User size={55} className="text-slate-300 dark:text-slate-600" strokeWidth={1} />
+                      )}
+                   </div>
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-slate-200 dark:border-[#1F2937] mt-4 mb-8">
@@ -603,7 +626,10 @@ export default function DocumentRequestPage() {
               <div className="px-8 sm:px-10 pb-8 pt-4 flex items-center justify-end space-x-3 border-t border-slate-200 dark:border-[#374151] bg-slate-50 dark:bg-[#111827] shrink-0">
                 <button 
                   type="button"
-                  onClick={() => setIsModalOpen(false)}
+                  onClick={() => {
+                    setIsModalOpen(false);
+                    setSelectedResidentUser(null);
+                  }}
                   className="bg-white hover:bg-slate-50 dark:bg-[#1F2937] dark:hover:bg-[#374151] border border-slate-200 dark:border-[#374151] text-slate-700 dark:text-[#F9FAFB] px-6 py-2.5 rounded-xl text-sm font-bold transition-colors shadow-sm"
                 >
                   Cancel

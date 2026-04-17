@@ -1,19 +1,98 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { 
   Package, AlertTriangle, XOctagon, Search, Plus, 
-  SlidersHorizontal, Eye, Trash2
+  SlidersHorizontal, Eye, Trash2, ChevronDown, User, Check, ArrowLeft
 } from "lucide-react";
+import { db } from "@/lib/firebase";
+import { collection, onSnapshot, query, addDoc, serverTimestamp, deleteDoc, doc, orderBy, limit } from "firebase/firestore";
 
 export default function InventoryPage() {
-  const [items, setItems] = useState([
-    { id: "001", name: "Printer", category: "Equipment", qty: 3, inStock: 2, status: "Available", lastUpdated: "03/14/2025, 9:30 am", location: "Office" },
-    { id: "002", name: "Bond Paper (A4)", category: "Supplies", qty: 50, inStock: 10, status: "Low Stock", lastUpdated: "03/20/2025, 1:15 pm", location: "Storage A" },
-    { id: "003", name: "Monobloc Chairs", category: "Equipment", qty: 100, inStock: 95, status: "Available", lastUpdated: "03/25/2025, 10:00 am", location: "Multi-Purpose Hall" },
-  ]);
+  const [items, setItems] = useState<any[]>([]);
 
   const [searchTerm, setSearchTerm] = useState("");
+  const [activeView, setActiveView] = useState("inventory");
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isBorrowModalOpen, setIsBorrowModalOpen] = useState(false);
+  const [newItem, setNewItem] = useState({
+    name: "",
+    qty: "",
+    location: "",
+    category: "Equipment"
+  });
+  const [borrowResidentId, setBorrowResidentId] = useState("");
+  const [borrowResidentInfo, setBorrowResidentInfo] = useState<any>(null);
+  const [residents, setResidents] = useState<any[]>([]);
+  const [successDialogMessage, setSuccessDialogMessage] = useState("");
+  const [activities, setActivities] = useState<any[]>([]);
+
+  // Real-time listener for residents and inventory and activities
+  useEffect(() => {
+    const unsubR = onSnapshot(query(collection(db, "residents")), (snap) => {
+      setResidents(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    const unsubI = onSnapshot(query(collection(db, "inventory")), (snap) => {
+      setItems(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    const unsubA = onSnapshot(query(collection(db, "activities"), orderBy("createdAt", "desc"), limit(4)), (snap) => {
+      setActivities(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => { unsubR(); unsubI(); unsubA(); };
+  }, []);
+
+  const handleResidentIdSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setBorrowResidentId(val);
+    const found = residents.find(r => r.residentId === val || r.id === val);
+    setBorrowResidentInfo(found || null);
+  };
+
+  const handleAddItem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newItem.name || !newItem.qty) return;
+
+    const parsedQty = parseInt(newItem.qty) || 0;
+    const itemToAdd = {
+      name: newItem.name,
+      category: newItem.category,
+      qty: parsedQty,
+      inStock: parsedQty,
+      status: parsedQty > 5 ? "Available" : "Low Stock",
+      lastUpdated: new Date().toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' }).toLowerCase(),
+      location: newItem.location || "N/A"
+    };
+
+    try {
+       await addDoc(collection(db, "inventory"), itemToAdd);
+       await addDoc(collection(db, "activities"), {
+          title: "New Inventory Added",
+          description: `Added ${parsedQty} units of ${newItem.name}`,
+          type: "inventory",
+          createdAt: serverTimestamp()
+       });
+       setIsAddModalOpen(false);
+       setNewItem({ name: "", qty: "", location: "", category: "Equipment" });
+       setSuccessDialogMessage("The inventory item has been successfully added to the system.");
+    } catch (err) {
+       console.error(err);
+    }
+  };
+
+  const handleDeleteItem = async (id: string, name: string) => {
+    if(!confirm(`Are you sure you want to delete ${name}?`)) return;
+    try {
+      await deleteDoc(doc(db, "inventory", id));
+      await addDoc(collection(db, "activities"), {
+         title: "Inventory Deleted",
+         description: `Deleted ${name} from inventory`,
+         type: "inventory",
+         createdAt: serverTimestamp()
+      });
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const filteredItems = items.filter(item => 
     item.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -21,7 +100,8 @@ export default function InventoryPage() {
   );
 
   return (
-    <div className="flex flex-col xl:flex-row gap-6 w-full animate-in fade-in duration-500">
+    <>
+      <div className="flex flex-col xl:flex-row gap-6 w-full animate-in fade-in duration-500">
       
       {/* Main Left Content */}
       <div className="flex-1 flex flex-col space-y-6 min-w-0">
@@ -72,7 +152,8 @@ export default function InventoryPage() {
         </div>
 
         {/* Inventory Overview Table */}
-        <div className="w-full bg-white dark:bg-[#1F2937] rounded-3xl border border-slate-200 dark:border-[#374151] shadow-sm dark:shadow-none overflow-hidden flex flex-col flex-1">
+        {activeView === "inventory" && (
+        <div className="w-full bg-white dark:bg-[#1F2937] rounded-3xl border border-slate-200 dark:border-[#374151] shadow-sm dark:shadow-none overflow-hidden flex flex-col flex-1 pb-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
           <div className="flex flex-col sm:flex-row justify-between items-center p-6 border-b border-slate-200 dark:border-[#374151] gap-4">
             <h2 className="text-xl font-bold text-slate-800 dark:text-[#F9FAFB] tracking-tight">Inventory Overview</h2>
             
@@ -88,9 +169,23 @@ export default function InventoryPage() {
                 />
                 <SlidersHorizontal size={16} className="text-slate-700 dark:text-slate-300 ml-2 cursor-pointer shrink-0" />
               </div>
-              <button className="flex items-center bg-[#2563EB] hover:bg-[#1D4ED8] text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-md shadow-[#2563EB]/20 dark:shadow-none transition-colors shrink-0">
-                <Plus size={16} className="mr-1" strokeWidth={3} /> Add Item
-              </button>
+              <div className="flex space-x-2 shrink-0">
+                <button 
+                  onClick={() => setIsAddModalOpen(true)}
+                  className="flex items-center bg-[#2563EB] hover:bg-[#1D4ED8] text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-md shadow-[#2563EB]/20 dark:shadow-none transition-colors"
+                >
+                  <Plus size={16} className="mr-1" strokeWidth={3} /> Add Item
+                </button>
+                <button 
+                  onClick={() => setIsBorrowModalOpen(true)}
+                  className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white px-4 py-2.5 rounded-xl text-sm font-bold transition-colors shadow-md shadow-[#2563EB]/20 dark:shadow-none"
+                >
+                  Borrow Item
+                </button>
+                <button onClick={() => setActiveView(activeView === "inventory" ? "returning" : "inventory")} className="bg-[#2563EB] hover:bg-[#1D4ED8] text-white px-4 py-2.5 rounded-xl text-sm font-bold transition-colors shadow-md shadow-[#2563EB]/20 dark:shadow-none">
+                  {activeView === "inventory" ? "Returning Items" : "Inventory"}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -136,7 +231,7 @@ export default function InventoryPage() {
                          <button className="bg-[#E5E7EB] dark:bg-[#4B5563] hover:bg-[#D1D5DB] dark:hover:bg-[#6B7280] text-slate-700 dark:text-[#F9FAFB] px-5 py-2 rounded-xl text-xs font-black transition-colors shadow-sm">
                            View
                          </button>
-                         <button className="bg-[#EF4444] hover:bg-[#DC2626] text-white px-5 py-2 rounded-xl text-xs font-black transition-colors shadow-sm shadow-[#EF4444]/20 border border-[#DC2626]">
+                         <button onClick={() => handleDeleteItem(item.id, item.name)} className="bg-[#EF4444] hover:bg-[#DC2626] text-white px-5 py-2 rounded-xl text-xs font-black transition-colors shadow-sm shadow-[#EF4444]/20 border border-[#DC2626]">
                            Delete
                          </button>
                        </div>
@@ -153,14 +248,46 @@ export default function InventoryPage() {
             </table>
           </div>
         </div>
+        )}
+
+        {/* Returning Views */}
+        {activeView === "returning" && (
+           <div className="w-full bg-white dark:bg-[#1F2937] rounded-3xl border border-slate-200 dark:border-[#374151] shadow-sm dark:shadow-none overflow-hidden flex flex-col flex-1 pb-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+             <div className="flex justify-between items-center p-6 border-b border-slate-200 dark:border-[#374151]">
+                <div className="flex items-center space-x-3">
+                  <button onClick={() => setActiveView("inventory")} className="text-slate-400 hover:text-slate-600 dark:hover:text-white transition-colors cursor-pointer p-1">
+                     <ArrowLeft size={24} />
+                  </button>
+                  <h2 className="text-xl font-bold text-slate-800 dark:text-[#F9FAFB] tracking-tight">Returning Items</h2>
+                </div>
+             </div>
+             
+             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 p-6">
+                
+                {/* Simulated Dummy Record indicating there's no dynamic database hooked yet for the Borrow actions */}
+                <div className="border border-slate-200 dark:border-[#374151] rounded-2xl p-6 flex flex-col items-center bg-slate-50 dark:bg-[#111827] shadow-sm hover:shadow-md transition-shadow">
+                   <div className="w-20 h-20 rounded-full border border-slate-200 dark:border-[#374151] overflow-hidden mb-4 bg-white dark:bg-[#1F2937] flex items-center justify-center">
+                      <User size={30} className="text-slate-400" />
+                   </div>
+                   <h3 className="text-sm font-extrabold text-slate-800 dark:text-[#F9FAFB] mb-1">Resident: Carlo Reyes</h3>
+                   <span className="text-[11px] font-bold text-[#EAB308] bg-[#FEF9C3] dark:bg-[#EAB308]/20 px-3 py-1 rounded-full mb-3">2 Items Pending</span>
+                   <button className="flex items-center text-xs font-bold text-[#2563EB] hover:text-[#1D4ED8] bg-white dark:bg-[#1F2937] border border-slate-200 dark:border-[#374151] px-4 py-2 rounded-xl mt-auto w-full justify-center">
+                      View <Eye size={14} className="ml-2" />
+                   </button>
+                </div>
+
+             </div>
+           </div>
+        )}
+
       </div>
 
       {/* Right Sidebar Widget */}
       <div className="w-full xl:w-[280px] flex flex-col space-y-6 shrink-0 mt-2 xl:mt-[60px]">
-        {/* Gray background container based on the reference */}
-        <div className="bg-[#94a3b8] dark:bg-[#1E293B] rounded-[32px] p-5 flex flex-col space-y-5 h-full min-h-[400px]">
+        {/* Right Sidebar Widgets */}
+        <div className="bg-transparent rounded-[32px] flex flex-col space-y-5 h-full min-h-[400px]">
           
-          <div className="bg-white dark:bg-[#0F172A] rounded-2xl p-6 shadow-sm">
+          <div className="bg-white dark:bg-[#1F2937] border border-slate-200 dark:border-[#374151] rounded-2xl p-6 shadow-sm dark:shadow-none">
             <div className="mb-6">
                <h4 className="text-[13px] font-black text-slate-800 dark:text-[#F9FAFB] mb-1">Borrowed Items:</h4>
                <p className="text-4xl font-normal text-slate-800 dark:text-[#F9FAFB] leading-none tracking-tight">001</p>
@@ -171,28 +298,247 @@ export default function InventoryPage() {
             </div>
           </div>
 
-          <div className="bg-white dark:bg-[#0F172A] rounded-2xl p-6 shadow-sm flex-1">
+          <div className="bg-white dark:bg-[#1F2937] border border-slate-200 dark:border-[#374151] rounded-2xl p-6 shadow-sm dark:shadow-none flex-1">
              <h4 className="text-sm font-black text-slate-800 dark:text-[#F9FAFB] mb-6">Notifications</h4>
              <ul className="space-y-4">
-                <li className="flex items-start">
-                   <div className="w-1.5 h-1.5 rounded-full bg-[#EAB308] mt-[6px] mr-3 shrink-0"></div>
-                   <div className="h-1 bg-slate-100 dark:bg-slate-700 rounded w-full mt-2"></div>
-                </li>
-                <li className="flex items-start">
-                   <div className="w-1.5 h-1.5 rounded-full bg-[#EF4444] mt-[6px] mr-3 shrink-0"></div>
-                   <div className="h-1 bg-slate-100 dark:bg-slate-700 rounded w-full mt-2"></div>
-                </li>
+                {activities.length === 0 ? (
+                  <li className="text-xs font-bold text-slate-500 text-center py-4">No new notifications</li>
+                ) : activities.map(act => (
+                  <li key={act.id} className="flex items-start">
+                     <div className={`w-1.5 h-1.5 rounded-full mt-[6px] mr-3 shrink-0 ${act.type === 'inventory' ? 'bg-[#EAB308]' : 'bg-[#EF4444]'}`}></div>
+                     <div>
+                        <p className="text-[12px] font-bold text-slate-700 dark:text-[#F9FAFB] leading-tight">{act.title}</p>
+                        <p className="text-[10px] font-bold text-slate-400 dark:text-[#9CA3AF] mt-0.5">{act.createdAt ? new Date(act.createdAt.toDate()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Now'}</p>
+                     </div>
+                  </li>
+                ))}
              </ul>
           </div>
           
-          <div className="flex justify-center mt-2 px-2 pb-4">
-            <button className="bg-[#0284c7] hover:bg-[#0369a1] text-white px-5 py-2.5 rounded-lg text-sm font-bold shadow-md transition-colors w-full">
-               Returning Items
-            </button>
+          <div className="bg-white dark:bg-[#1F2937] border border-slate-200 dark:border-[#374151] rounded-2xl p-6 shadow-sm dark:shadow-none">
+             <h4 className="text-sm font-black text-slate-800 dark:text-[#F9FAFB] mb-4">Most Borrowed Items</h4>
+             <ul className="space-y-4">
+                <li className="flex justify-between items-center text-xs font-bold text-slate-600 dark:text-[#9CA3AF]">
+                  <span>Monobloc Chairs</span>
+                  <span className="text-[#2563EB] bg-[#EFF6FF] dark:bg-[#1E3A8A]/30 px-2 py-1 rounded-md">145x</span>
+                </li>
+                <li className="flex justify-between items-center text-xs font-bold text-slate-600 dark:text-[#9CA3AF]">
+                  <span>Tents</span>
+                  <span className="text-[#2563EB] bg-[#EFF6FF] dark:bg-[#1E3A8A]/30 px-2 py-1 rounded-md">24x</span>
+                </li>
+                <li className="flex justify-between items-center text-xs font-bold text-slate-600 dark:text-[#9CA3AF]">
+                  <span>Sound System</span>
+                  <span className="text-[#2563EB] bg-[#EFF6FF] dark:bg-[#1E3A8A]/30 px-2 py-1 rounded-md">12x</span>
+                </li>
+             </ul>
           </div>
+
         </div>
       </div>
 
     </div>
+
+      {/* Add Item Modal */}
+      {isAddModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200 p-4">
+          <div className="bg-white dark:bg-[#1E293B] w-full max-w-[420px] rounded-[32px] shadow-2xl animate-in zoom-in-95 duration-200 overflow-hidden border border-slate-200 dark:border-[#334155]">
+            <div className="px-8 pt-8 pb-6">
+              <h2 className="text-[22px] font-black text-slate-800 dark:text-[#F9FAFB]">Add Inventory Item</h2>
+            </div>
+            
+            <form onSubmit={handleAddItem} className="px-8 pb-8 space-y-5">
+              <div>
+                <label className="block text-[13px] font-bold text-slate-700 dark:text-[#CBD5E1] mb-1.5">Item name:</label>
+                <input 
+                  type="text" 
+                  value={newItem.name}
+                  onChange={e => setNewItem({...newItem, name: e.target.value})}
+                  className="w-full px-4 py-3 rounded-2xl border border-slate-200/80 dark:border-[#334155] bg-slate-50 dark:bg-[#0F172A] text-sm font-semibold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:ring-2 focus:ring-[#50A89A]/50 focus:border-[#50A89A] transition-all placeholder:text-slate-400 placeholder:font-medium"
+                  placeholder="Enter item name"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-[13px] font-bold text-slate-700 dark:text-[#CBD5E1] mb-1.5">Quantity:</label>
+                <input 
+                  type="number" 
+                  value={newItem.qty}
+                  onChange={e => setNewItem({...newItem, qty: e.target.value})}
+                  className="w-full px-4 py-3 rounded-2xl border border-slate-200/80 dark:border-[#334155] bg-slate-50 dark:bg-[#0F172A] text-sm font-semibold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:ring-2 focus:ring-[#50A89A]/50 focus:border-[#50A89A] transition-all placeholder:text-slate-400 placeholder:font-medium"
+                  placeholder="0"
+                  min="0"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-[13px] font-bold text-slate-700 dark:text-[#CBD5E1] mb-1.5">Location:</label>
+                <input 
+                  type="text" 
+                  value={newItem.location}
+                  onChange={e => setNewItem({...newItem, location: e.target.value})}
+                  className="w-full px-4 py-3 rounded-2xl border border-slate-200/80 dark:border-[#334155] bg-slate-50 dark:bg-[#0F172A] text-sm font-semibold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:ring-2 focus:ring-[#50A89A]/50 focus:border-[#50A89A] transition-all placeholder:text-slate-400 placeholder:font-medium"
+                  placeholder="Enter storage location"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[13px] font-bold text-slate-700 dark:text-[#CBD5E1] mb-1.5">Category:</label>
+                <div className="relative">
+                  <select 
+                    value={newItem.category}
+                    onChange={e => setNewItem({...newItem, category: e.target.value})}
+                    className="w-full px-4 py-3 rounded-2xl border border-slate-200/80 dark:border-[#334155] bg-slate-50 dark:bg-[#0F172A] text-sm font-semibold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:ring-2 focus:ring-[#50A89A]/50 focus:border-[#50A89A] transition-all appearance-none cursor-pointer"
+                  >
+                    <option value="Equipment">Equipment</option>
+                    <option value="Supplies">Supplies</option>
+                    <option value="Vehicles">Vehicles</option>
+                    <option value="Others">Others</option>
+                  </select>
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-chevron-down"><path d="m6 9 6 6 6-6"/></svg>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 pt-6 mt-4 border-t border-slate-100 dark:border-[#334155]">
+                <button 
+                  type="submit"
+                  className="flex-1 bg-[#5aa697] hover:bg-[#4d9082] text-white px-6 py-3.5 rounded-xl text-sm font-bold transition-all shadow-[0_4px_12px_rgba(90,166,151,0.25)] active:scale-[0.98]"
+                >
+                  Save Item
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => setIsAddModalOpen(false)}
+                  className="flex-1 bg-[#E2E8F0] dark:bg-[#334155] hover:bg-[#CBD5E1] dark:hover:bg-[#475569] text-slate-700 dark:text-[#F8FAFC] px-6 py-3.5 rounded-xl text-sm font-bold transition-all active:scale-[0.98]"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Borrow Item Modal */}
+      {isBorrowModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200 p-4">
+          <div className="bg-white dark:bg-[#1E293B] w-full max-w-[460px] rounded-[32px] shadow-2xl animate-in zoom-in-95 duration-200 overflow-hidden border border-slate-200 dark:border-[#334155]">
+            <div className="px-8 pt-8 pb-6">
+              <h2 className="text-2xl font-black text-slate-800 dark:text-[#F9FAFB] tracking-tight mb-6">Borrow Item</h2>
+              
+              <form onSubmit={async (e) => { 
+                  e.preventDefault(); 
+                  try {
+                    await addDoc(collection(db, "borrow_records"), {
+                        residentId: borrowResidentId,
+                        residentName: borrowResidentInfo ? `${borrowResidentInfo.firstName} ${borrowResidentInfo.lastName}` : "Unknown",
+                        item: "Assigned Item",
+                        status: "Pending",
+                        createdAt: serverTimestamp()
+                    });
+                    await addDoc(collection(db, "activities"), {
+                        title: "Item Borrowed",
+                        description: `A resident just borrowed an item from the inventory.`,
+                        type: "inventory",
+                        createdAt: serverTimestamp()
+                    });
+                    setIsBorrowModalOpen(false); 
+                    setSuccessDialogMessage("The item has been successfully dispensed. Transaction recorded.");
+                  } catch (err) { console.error(err); }
+              }}>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-500 dark:text-[#9CA3AF] mb-1.5 ml-1">Resident ID:</label>
+                    <input autoFocus required type="text" value={borrowResidentId} onChange={handleResidentIdSearch} className="w-full bg-slate-50 dark:bg-[#0F172A] border border-slate-200 dark:border-[#374151] rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#2563EB]" placeholder="e.g. RC-6272" />
+                  </div>
+                  
+                  {/* Auto-filled Resident Info */}
+                  <div className="bg-slate-50 dark:bg-[#0F172A] rounded-xl p-4 border border-slate-200 dark:border-[#374151] flex flex-col items-center">
+                     <h3 className="text-sm font-extrabold text-slate-800 dark:text-[#F9FAFB] mb-3">Resident Info (Auto)</h3>
+                     <div className="w-full space-y-2">
+                       <div className="flex text-sm text-slate-600 dark:text-[#9CA3AF] font-bold">
+                          <span className="w-20 shrink-0">Name:</span> 
+                          <span className="text-slate-800 dark:text-white font-normal truncate">
+                              {borrowResidentInfo ? `${borrowResidentInfo.firstName} ${borrowResidentInfo.lastName}` : '—'}
+                          </span>
+                       </div>
+                       <div className="flex text-sm text-slate-600 dark:text-[#9CA3AF] font-bold">
+                          <span className="w-20 shrink-0">Address:</span> 
+                          <span className="text-slate-800 dark:text-white font-normal truncate">
+                              {borrowResidentInfo ? `${borrowResidentInfo.address}, ${borrowResidentInfo.city}` : '—'}
+                          </span>
+                       </div>
+                     </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-500 dark:text-[#9CA3AF] mb-1.5 ml-1">Item:</label>
+                    <div className="relative">
+                       <select className="w-full bg-slate-50 dark:bg-[#0F172A] border border-slate-200 dark:border-[#374151] rounded-xl px-4 py-3 cursor-pointer text-sm font-bold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#2563EB] appearance-none">
+                          <option>Monobloc Chairs</option>
+                          <option>Tents</option>
+                          <option>Sound System</option>
+                       </select>
+                       <div className="absolute inset-y-0 right-4 flex items-center pointer-events-none">
+                          <ChevronDown size={16} className="text-slate-400" />
+                       </div>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-500 dark:text-[#9CA3AF] mb-1.5 ml-1">Quantity:</label>
+                    <input required type="number" min="1" className="w-full bg-slate-50 dark:bg-[#0F172A] border border-slate-200 dark:border-[#374151] rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#2563EB]" defaultValue="1" />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-500 dark:text-[#9CA3AF] mb-1.5 ml-1">Borrow Date:</label>
+                    <input required type="date" className="w-full bg-slate-50 dark:bg-[#0F172A] border border-slate-200 dark:border-[#374151] rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#2563EB]" />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-500 dark:text-[#9CA3AF] mb-1.5 ml-1">Return Date:</label>
+                    <input required type="date" className="w-full bg-slate-50 dark:bg-[#0F172A] border border-slate-200 dark:border-[#374151] rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#2563EB]" />
+                  </div>
+                </div>
+
+                <div className="flex space-x-3 mt-8">
+                  <button type="submit" className="flex-1 bg-[#10B981] hover:bg-[#059669] text-white py-3.5 rounded-xl font-bold tracking-wide transition-colors shadow-lg shadow-[#10B981]/20 border border-[#10B981] dark:border-none">
+                    Save
+                  </button>
+                  <button type="button" onClick={() => setIsBorrowModalOpen(false)} className="flex-1 bg-slate-100 dark:bg-[#334155] hover:bg-slate-200 dark:hover:bg-[#475569] text-slate-700 dark:text-[#F8FAFC] py-3.5 rounded-xl font-bold tracking-wide transition-colors">
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Success Notification Modal */}
+      {successDialogMessage && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#111827] w-full max-w-sm rounded-[24px] shadow-2xl border border-slate-200 dark:border-[#374151] overflow-hidden flex flex-col items-center p-8 text-center scale-in-95 duration-200">
+            <div className="w-24 h-24 bg-[#10B981] rounded-full flex items-center justify-center mb-6 shadow-lg shadow-[#10B981]/20 dark:shadow-none">
+              <Check size={48} className="text-white" strokeWidth={4} />
+            </div>
+            <h2 className="text-2xl font-black text-slate-800 dark:text-[#F9FAFB] mb-2 tracking-tight">Success</h2>
+            <p className="text-slate-500 dark:text-[#9CA3AF] text-sm mb-8 font-medium px-4 leading-relaxed">
+              {successDialogMessage}
+            </p>
+            <button 
+              onClick={() => setSuccessDialogMessage("")}
+              className="w-full bg-[#10B981] hover:bg-[#059669] text-white px-6 py-3 rounded-xl text-sm font-bold shadow-md shadow-[#10B981]/20 dark:shadow-none transition-colors"
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
+
+    </>
   );
 }
