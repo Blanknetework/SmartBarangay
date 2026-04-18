@@ -1,26 +1,91 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, ShieldCheck, Loader2, ShieldAlert } from "lucide-react";
+import { useAuth, Role } from "@/components/auth-provider";
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
+import { auth, db } from "@/lib/firebase";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
-  const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("admin");
+  const searchParams = useSearchParams();
+  const { setRole } = useAuth();
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
   const [showWelcome, setShowWelcome] = useState(false);
+  const [showTimeoutAlert, setShowTimeoutAlert] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  useEffect(() => {
+    if (searchParams.get("reason") === "timeout") {
+      setShowTimeoutAlert(true);
+      
+      // Clean up the URL parameter without page reload
+      window.history.replaceState(null, "", "/");
+      
+      setTimeout(() => setShowTimeoutAlert(false), 5000);
+    }
+  }, [searchParams]);
+
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if(username === "admin" && password === "admin") {
+    setIsLoading(true);
+
+    try {
+      // Mock Users for RBAC Demonstration
+      if (password === username) {
+        if (username === "admin") setRole("admin");
+        else if (username === "inventory") setRole("inventory");
+        else if (username === "health") setRole("health");
+        else if (username === "finance") setRole("finance");
+        else if (username === "documents") setRole("documents");
+        else {
+           // If it's none of our mock users, drop out to attempt real Firebase Auth
+           const userCredential = await signInWithEmailAndPassword(auth, username, password);
+           const userDocRef = doc(db, "users", userCredential.user.uid);
+           const userDocSnap = await getDoc(userDocRef);
+           
+           if (userDocSnap.exists()) {
+             const userData = userDocSnap.data();
+             setRole(userData.role as Role || "admin");
+           } else {
+             setRole("admin");
+           }
+        }
+        
+        setShowWelcome(true);
+        setTimeout(() => {
+          router.push("/dashboard");
+        }, 1500);
+        return;
+      }
+
+      const userCredential = await signInWithEmailAndPassword(auth, username, password);
+      
+      const userDocRef = doc(db, "users", userCredential.user.uid);
+      const userDocSnap = await getDoc(userDocRef);
+      
+      if (userDocSnap.exists()) {
+        const userData = userDocSnap.data();
+        setRole(userData.role as Role || "admin");
+      } else {
+        setRole("admin");
+      }
+
       setShowWelcome(true);
       setTimeout(() => {
         router.push("/dashboard");
       }, 1500);
-    } else {
-      alert("Invalid credentials. Try admin / admin");
+
+    } catch (error: any) {
+      console.error("Login Error:", error);
+      alert("Invalid credentials. For RBAC Demo, try typing 'inventory' in both fields!");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -47,7 +112,7 @@ export default function LoginPage() {
             <div className="space-y-1">
               <input
                 type="text"
-                placeholder="Username"
+                placeholder="Username (e.g. admin, inventory, health)"
                 className="w-full pb-2 pt-2 border-b-[1.5px] border-gray-300 bg-transparent text-gray-800 focus:outline-none focus:border-[#0e88c7] transition-colors placeholder:text-gray-400 placeholder:font-medium placeholder:text-sm"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
@@ -64,13 +129,16 @@ export default function LoginPage() {
                 required
               />
             </div>
+            
+            {/* Removed the role demo select for production */}
 
             <div className="pt-2">
               <button
                 type="submit"
-                className="w-full bg-[#0e88c7] hover:bg-[#0c73a8] text-white rounded-lg py-3 font-semibold text-base transition-all"
+                disabled={isLoading}
+                className="w-full bg-[#0e88c7] hover:bg-[#0c73a8] text-white rounded-lg py-3 font-semibold text-base transition-all flex justify-center items-center gap-2 disabled:opacity-70"
               >
-                Login
+                {isLoading ? <Loader2 className="animate-spin w-5 h-5" /> : "Login"}
               </button>
             </div>
           </form>
@@ -98,6 +166,26 @@ export default function LoginPage() {
           </div>
         </div>
       )}
+      {/* Timeout Notification */}
+      {showTimeoutAlert && (
+        <div className="fixed top-6 right-6 bg-white dark:bg-[#1E293B] shadow-xl rounded-xl flex items-center p-4 border border-rose-100 dark:border-rose-900/30 animate-in slide-in-from-top-4 fade-in duration-300 z-50">
+          <div className="bg-rose-100 dark:bg-rose-900/30 rounded-full p-2 mr-4 flex-shrink-0">
+            <ShieldAlert className="text-rose-600 dark:text-rose-400" size={24} />
+          </div>
+          <div>
+            <h4 className="text-slate-800 dark:text-slate-100 font-bold text-sm">Session Expired</h4>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">You were logged out due to inactivity.</p>
+          </div>
+        </div>
+      )}
     </>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#f2f6f9] flex items-center justify-center">Loading Data...</div>}>
+      <LoginForm />
+    </Suspense>
   );
 }

@@ -11,21 +11,32 @@ import { navItems } from "@/components/sidebar";
 import { cn } from "@/lib/utils";
 import { db } from "@/lib/firebase";
 import { collection, onSnapshot, query, orderBy, limit } from "firebase/firestore";
+import { auth } from "@/lib/firebase";
+import { useAuth } from "./auth-provider";
 
 export function Header() {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
+  const { setRole } = useAuth();
 
   const handleLogout = () => {
-    router.push("/");
+    auth.signOut().then(() => {
+      setRole(null);
+      router.push("/");
+    }).catch((err) => {
+      console.error(err);
+      setRole(null);
+      router.push("/");
+    });
   };
 
   const [isOpen, setIsOpen] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
+ 
 
   useEffect(() => {
     setMounted(true);

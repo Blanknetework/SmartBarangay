@@ -15,20 +15,27 @@ import {
   Briefcase,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth, Role } from "@/components/auth-provider";
 
-export const navItems = [
-  { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { name: "Barangay Officials", href: "/dashboard/officials", icon: Briefcase },
-  { name: "Residents Record", href: "/dashboard/residents", icon: Users },
-  { name: "Document Request", href: "/dashboard/documents", icon: FileText },
-  { name: "Medical", href: "/dashboard/medical", icon: Stethoscope },
-  { name: "Financial Management", href: "/dashboard/financial", icon: CircleDollarSign },
-  { name: "Inventory Management", href: "/dashboard/inventory", icon: Package },
+export const navItems: { name: string, href: string, icon: any, allowedRoles: Role[] }[] = [
+  { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard, allowedRoles: ["admin", "inventory", "documents", "health", "finance"] },
+  { name: "Barangay Officials", href: "/dashboard/officials", icon: Briefcase, allowedRoles: ["admin"] },
+  { name: "Residents Record", href: "/dashboard/residents", icon: Users, allowedRoles: ["admin", "documents", "health"] },
+  { name: "Document Request", href: "/dashboard/documents", icon: FileText, allowedRoles: ["admin", "documents"] },
+  { name: "Medical", href: "/dashboard/medical", icon: Stethoscope, allowedRoles: ["admin", "health"] },
+  { name: "Financial Management", href: "/dashboard/financial", icon: CircleDollarSign, allowedRoles: ["admin", "finance"] },
+  { name: "Inventory Management", href: "/dashboard/inventory", icon: Package, allowedRoles: ["admin", "inventory"] },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const { role, isLoading } = useAuth();
+
+  const filteredNavItems = navItems.filter((item) => {
+    if (!role) return false;
+    return item.allowedRoles.includes(role);
+  });
 
   return (
     <aside
@@ -52,7 +59,7 @@ export function Sidebar() {
           </div>
         )}
         
-        {navItems.map((item) => {
+        {filteredNavItems.map((item) => {
           const isActive = pathname === item.href;
           const Icon = item.icon;
           return (

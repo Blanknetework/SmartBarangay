@@ -25,7 +25,7 @@ interface DocRequest {
   id: string;
   name: string;
   age: number;
-  address: string;
+  address: string;  
   city?: string;
   civilStatus: string;
   type: string;
