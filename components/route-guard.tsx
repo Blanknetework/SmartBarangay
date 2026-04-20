@@ -64,5 +64,9 @@ export function RouteGuard({ children }: { children: React.ReactNode }) {
     );
   }
 
+  if (!role) {
+    return null; 
+  }
+
   return <>{children}</>;
 }

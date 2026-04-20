@@ -3,7 +3,7 @@
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
-import { CheckCircle2, ShieldCheck, Loader2, ShieldAlert } from "lucide-react";
+import { CheckCircle2, ShieldCheck, Loader2, ShieldAlert, XCircle } from "lucide-react";
 import { useAuth, Role } from "@/components/auth-provider";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
@@ -19,6 +19,7 @@ function LoginForm() {
 
   const [showWelcome, setShowWelcome] = useState(false);
   const [showTimeoutAlert, setShowTimeoutAlert] = useState(false);
+  const [showError, setShowError] = useState(false);
 
   useEffect(() => {
     if (searchParams.get("reason") === "timeout") {
@@ -83,7 +84,8 @@ function LoginForm() {
 
     } catch (error: any) {
       console.error("Login Error:", error);
-      alert("Invalid credentials. For RBAC Demo, try typing 'inventory' in both fields!");
+      setShowError(true);
+      setTimeout(() => setShowError(false), 5000);
     } finally {
       setIsLoading(false);
     }
@@ -175,6 +177,18 @@ function LoginForm() {
           <div>
             <h4 className="text-slate-800 dark:text-slate-100 font-bold text-sm">Session Expired</h4>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">You were logged out due to inactivity.</p>
+          </div>
+        </div>
+      )}
+      {/* Error Notification */}
+      {showError && (
+        <div className="fixed top-6 right-6 bg-white dark:bg-[#1E293B] shadow-xl rounded-xl flex items-center p-4 border border-red-100 dark:border-red-900/30 animate-in slide-in-from-top-4 fade-in duration-300 z-50">
+          <div className="bg-red-100 dark:bg-red-900/30 rounded-full p-2 mr-4 flex-shrink-0">
+            <XCircle className="text-red-600 dark:text-red-400" size={24} />
+          </div>
+          <div>
+            <h4 className="text-slate-800 dark:text-slate-100 font-bold text-sm">Login Failed</h4>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Invalid username or password.</p>
           </div>
         </div>
       )}
