@@ -19,7 +19,6 @@ import { useAuth, Role } from "@/components/auth-provider";
 
 export const navItems: { name: string, href: string, icon: any, allowedRoles: Role[] }[] = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard, allowedRoles: ["admin", "inventory", "documents", "health", "finance"] },
-  { name: "Barangay Officials", href: "/dashboard/officials", icon: Briefcase, allowedRoles: ["admin"] },
   { name: "Residents Record", href: "/dashboard/residents", icon: Users, allowedRoles: ["admin", "documents", "health"] },
   { name: "Document Request", href: "/dashboard/documents", icon: FileText, allowedRoles: ["admin", "documents"] },
   { name: "Medical", href: "/dashboard/medical", icon: Stethoscope, allowedRoles: ["admin", "health"] },

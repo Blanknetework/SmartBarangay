@@ -26,6 +26,12 @@ export default function InventoryPage() {
   const [residents, setResidents] = useState<any[]>([]);
   const [successDialogMessage, setSuccessDialogMessage] = useState("");
   const [activities, setActivities] = useState<any[]>([]);
+  
+  const [showFilterMenu, setShowFilterMenu] = useState(false);
+  const [filterCategory, setFilterCategory] = useState("All");
+
+  const [itemToDelete, setItemToDelete] = useState<any>(null);
+  const [itemToView, setItemToView] = useState<any>(null);
 
   // Real-time listener for residents and inventory and activities
   useEffect(() => {
@@ -79,25 +85,37 @@ export default function InventoryPage() {
     }
   };
 
-  const handleDeleteItem = async (id: string, name: string) => {
-    if(!confirm(`Are you sure you want to delete ${name}?`)) return;
+  const confirmDelete = async () => {
+    if (!itemToDelete) return;
     try {
-      await deleteDoc(doc(db, "inventory", id));
+      await addDoc(collection(db, "recycle_bin"), {
+        sourceCollection: "inventory",
+        sourceId: itemToDelete.id,
+        itemType: "Inventory Item",
+        title: itemToDelete.name || "Inventory Item",
+        data: itemToDelete,
+        deletedAt: serverTimestamp(),
+        deleteAfterDays: 30
+      });
+      await deleteDoc(doc(db, "inventory", itemToDelete.id));
       await addDoc(collection(db, "activities"), {
          title: "Inventory Deleted",
-         description: `Deleted ${name} from inventory`,
+         description: `Deleted ${itemToDelete.name} from inventory`,
          type: "inventory",
          createdAt: serverTimestamp()
       });
+      setItemToDelete(null);
     } catch (err) {
       console.error(err);
     }
   };
 
-  const filteredItems = items.filter(item => 
-    item.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    item.id.includes(searchTerm)
-  );
+  const filteredItems = items.filter(item => {
+    const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                          item.id.includes(searchTerm);
+    const matchesFilter = filterCategory === "All" || item.category === filterCategory;
+    return matchesSearch && matchesFilter;
+  });
 
   return (
     <>
@@ -167,7 +185,30 @@ export default function InventoryPage() {
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="bg-transparent border-none focus:outline-none text-sm w-full font-bold text-slate-700 dark:text-[#F9FAFB] placeholder:text-slate-400 placeholder:font-medium"
                 />
-                <SlidersHorizontal size={16} className="text-slate-700 dark:text-slate-300 ml-2 cursor-pointer shrink-0" />
+              </div>
+              <div className="relative shrink-0">
+                <button 
+                  onClick={() => setShowFilterMenu(!showFilterMenu)}
+                  className={`p-2.5 border border-slate-200 dark:border-slate-700 rounded-xl transition-colors flex items-center justify-center ${showFilterMenu || filterCategory !== 'All' ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 border-blue-200' : 'bg-slate-50 dark:bg-[#111827] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                >
+                  <SlidersHorizontal size={16} />
+                </button>
+                {showFilterMenu && (
+                  <div className="absolute right-0 top-full mt-2 w-48 bg-white dark:bg-[#1E293B] border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg z-10 overflow-hidden py-1">
+                    <div className="px-3 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700 mb-1">
+                       Filter Category
+                    </div>
+                    {["All", "Equipment", "Supplies", "Furniture", "Vehicles"].map(cat => (
+                      <button 
+                        key={cat}
+                        onClick={() => { setFilterCategory(cat); setShowFilterMenu(false); }}
+                        className={`w-full text-left px-4 py-2 text-sm font-semibold transition-colors ${filterCategory === cat ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}
+                      >
+                        {cat}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="flex space-x-2 shrink-0">
                 <button 
@@ -228,10 +269,10 @@ export default function InventoryPage() {
                     <td className="px-6 py-5 text-sm font-bold text-slate-600 dark:text-[#9CA3AF]">{item.location}</td>
                     <td className="px-6 py-5 text-right w-40">
                        <div className="flex items-center justify-end space-x-3">
-                         <button className="bg-[#E5E7EB] dark:bg-[#4B5563] hover:bg-[#D1D5DB] dark:hover:bg-[#6B7280] text-slate-700 dark:text-[#F9FAFB] px-5 py-2 rounded-xl text-xs font-black transition-colors shadow-sm">
+                         <button onClick={() => setItemToView(item)} className="bg-[#E5E7EB] dark:bg-[#4B5563] hover:bg-[#D1D5DB] dark:hover:bg-[#6B7280] text-slate-700 dark:text-[#F9FAFB] px-5 py-2 rounded-xl text-xs font-black transition-colors shadow-sm">
                            View
                          </button>
-                         <button onClick={() => handleDeleteItem(item.id, item.name)} className="bg-[#EF4444] hover:bg-[#DC2626] text-white px-5 py-2 rounded-xl text-xs font-black transition-colors shadow-sm shadow-[#EF4444]/20 border border-[#DC2626]">
+                         <button onClick={() => setItemToDelete(item)} className="bg-[#EF4444] hover:bg-[#DC2626] text-white px-5 py-2 rounded-xl text-xs font-black transition-colors shadow-sm shadow-[#EF4444]/20 border border-[#DC2626]">
                            Delete
                          </button>
                        </div>
@@ -520,7 +561,7 @@ export default function InventoryPage() {
 
       {/* Success Notification Modal */}
       {successDialogMessage && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white dark:bg-[#111827] w-full max-w-sm rounded-[24px] shadow-2xl border border-slate-200 dark:border-[#374151] overflow-hidden flex flex-col items-center p-8 text-center scale-in-95 duration-200">
             <div className="w-24 h-24 bg-[#10B981] rounded-full flex items-center justify-center mb-6 shadow-lg shadow-[#10B981]/20 dark:shadow-none">
               <Check size={48} className="text-white" strokeWidth={4} />
@@ -535,6 +576,84 @@ export default function InventoryPage() {
             >
               OK
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Item Delete Confirmation Modal */}
+      {itemToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#111827] w-full max-w-sm rounded-[24px] shadow-2xl border border-slate-200 dark:border-[#374151] overflow-hidden flex flex-col items-center p-8 text-center scale-in-95 duration-200">
+            <div className="w-20 h-20 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mb-6">
+              <Trash2 size={36} className="text-red-500" strokeWidth={2.5} />
+            </div>
+            <h2 className="text-2xl font-black text-slate-800 dark:text-[#F9FAFB] mb-2 tracking-tight">Delete Item?</h2>
+            <p className="text-slate-500 dark:text-[#9CA3AF] text-sm mb-8 font-medium leading-relaxed">
+              Are you sure you want to delete <span className="font-bold text-slate-800 dark:text-slate-200">{itemToDelete.name}</span>? This action cannot be undone.
+            </p>
+            <div className="flex space-x-3 w-full">
+              <button 
+                onClick={() => setItemToDelete(null)}
+                className="flex-1 bg-slate-100 hover:bg-slate-200 dark:bg-[#374151] dark:hover:bg-[#4B5563] text-slate-700 dark:text-[#F9FAFB] px-4 py-3 rounded-xl text-sm font-bold transition-colors"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={confirmDelete}
+                className="flex-1 bg-[#EF4444] hover:bg-[#DC2626] text-white px-4 py-3 rounded-xl text-sm font-bold shadow-md shadow-[#EF4444]/20 transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Item View Modal */}
+      {itemToView && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setItemToView(null)}>
+          <div className="bg-white dark:bg-[#111827] w-full max-w-[400px] rounded-[24px] shadow-2xl border border-slate-200 dark:border-[#374151] overflow-hidden flex flex-col p-8 relative" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setItemToView(null)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 dark:hover:text-[#F9FAFB] transition-colors">
+              <XOctagon size={20} />
+            </button>
+            <div className="flex flex-col items-center mb-6">
+              <div className="w-20 h-20 rounded-full bg-blue-50 dark:bg-blue-900/20 text-blue-500 flex items-center justify-center mb-4">
+                <Package size={36} />
+              </div>
+              <h2 className="text-xl font-black text-slate-800 dark:text-[#F9FAFB] text-center">{itemToView.name}</h2>
+              <p className="text-sm font-bold text-slate-500">{itemToView.id}</p>
+            </div>
+            
+            <div className="space-y-4">
+               <div className="grid grid-cols-2 gap-4">
+                 <div className="bg-slate-50 dark:bg-[#1F2937] p-3 rounded-xl border border-slate-100 dark:border-[#374151]">
+                   <p className="text-xs font-bold text-slate-400 dark:text-[#9CA3AF]">Category</p>
+                   <p className="text-sm font-bold text-slate-800 dark:text-[#F9FAFB]">{itemToView.category}</p>
+                 </div>
+                 <div className="bg-slate-50 dark:bg-[#1F2937] p-3 rounded-xl border border-slate-100 dark:border-[#374151]">
+                   <p className="text-xs font-bold text-slate-400 dark:text-[#9CA3AF]">Total Qty</p>
+                   <p className="text-sm font-bold text-slate-800 dark:text-[#F9FAFB]">{itemToView.qty}</p>
+                 </div>
+               </div>
+               <div className="grid grid-cols-2 gap-4">
+                 <div className="bg-slate-50 dark:bg-[#1F2937] p-3 rounded-xl border border-slate-100 dark:border-[#374151]">
+                   <p className="text-xs font-bold text-slate-400 dark:text-[#9CA3AF]">In Stock</p>
+                   <p className="text-sm font-bold text-slate-800 dark:text-[#F9FAFB]">{itemToView.inStock}</p>
+                 </div>
+                 <div className="bg-slate-50 dark:bg-[#1F2937] p-3 rounded-xl border border-slate-100 dark:border-[#374151]">
+                   <p className="text-xs font-bold text-slate-400 dark:text-[#9CA3AF]">Status</p>
+                   <p className={`text-sm font-bold ${itemToView.status === 'Available' ? 'text-emerald-500' : itemToView.status === 'Low Stock' ? 'text-orange-500' : 'text-red-500'}`}>{itemToView.status}</p>
+                 </div>
+               </div>
+               <div className="bg-slate-50 dark:bg-[#1F2937] p-3 rounded-xl border border-slate-100 dark:border-[#374151]">
+                 <p className="text-xs font-bold text-slate-400 dark:text-[#9CA3AF]">Location</p>
+                 <p className="text-sm font-bold text-slate-800 dark:text-[#F9FAFB]">{itemToView.location || "N/A"}</p>
+               </div>
+               <div className="bg-slate-50 dark:bg-[#1F2937] p-3 rounded-xl border border-slate-100 dark:border-[#374151]">
+                 <p className="text-xs font-bold text-slate-400 dark:text-[#9CA3AF]">Last Updated</p>
+                 <p className="text-sm font-bold text-slate-800 dark:text-[#F9FAFB]">{itemToView.lastUpdated}</p>
+               </div>
+            </div>
           </div>
         </div>
       )}

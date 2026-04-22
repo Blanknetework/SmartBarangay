@@ -21,7 +21,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Check localStorage when app loads to persist the login
     const savedRole = localStorage.getItem("smartbarangay_role") as Role;
     if (savedRole) {
       setRoleState(savedRole);

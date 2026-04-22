@@ -99,7 +99,7 @@ function LoginForm() {
         {/* Branding Area at the top */}
         <div className="flex flex-col items-center justify-center text-center w-full -mb-8">
           <div className="w-[340px] h-[340px] flex items-center justify-center">
-             <Image src="/Barangay1.png" alt="Barangay Logo" width={340} height={340} className="object-contain" priority />
+             <Image src="/Barangay1.png" alt="Barangay Logo" width={340} height={340} className="object-contain" style={{ width: 'auto', height: '340px' }} priority />
           </div>
         </div>
 

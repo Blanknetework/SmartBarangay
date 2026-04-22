@@ -2,6 +2,7 @@
 
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import {
   LineChart,
   Line,
@@ -16,42 +17,66 @@ import {
   Pie,
   Cell,
 } from "recharts";
-import { Users, FileText, CheckCircle, HeartPulse, Package, ArrowUpRight, ArrowDownRight, Activity } from "lucide-react";
+import { Users, FileText, CheckCircle, Package, ArrowUpRight, ArrowDownRight, Activity } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { collection, onSnapshot, query, orderBy, limit } from "firebase/firestore";
 
-const revenueData = [
-  { name: "Jan", thisMonth: 4000, lastMonth: 2400 },
-  { name: "Feb", thisMonth: 3000, lastMonth: 1398 },
-  { name: "Mar", thisMonth: 10000, lastMonth: 9800 },
-  { name: "Apr", thisMonth: 8000, lastMonth: 3908 },
-  { name: "May", thisMonth: 15000, lastMonth: 4800 },
-  { name: "Jun", thisMonth: 11000, lastMonth: 3800 },
-  { name: "Jul", thisMonth: 12000, lastMonth: 4300 },
-];
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+type ServicePerformanceMetric = {
+  label: string;
+  totalRequests: number;
+  approvedRequests: number;
+  rate: number;
+};
 
-const serviceData = [
-  { name: "Certificate", value: 15000, fill: "#3B82F6" },
-  { name: "Clearance", value: 25000, fill: "#8B5CF6" },
-  { name: "Permit", value: 18000, fill: "#10B981" },
-  { name: "Health", value: 31000, fill: "#EF4444" },
-  { name: "Residency", value: 12000, fill: "#F59E0B" },
-  { name: "Inventory", value: 22000, fill: "#22C55E" },
-];
+function ServicePerformanceRow({ metric }: { metric: ServicePerformanceMetric }) {
+  const { label, totalRequests, approvedRequests, rate } = metric;
 
-const distributionData = [
-  { name: "Clearances", value: 35.6, color: "#10B981" },
-  { name: "Permits", value: 25.5, color: "#3B82F6" },
-  { name: "Certifications", value: 30.8, color: "#EC4899" },
-  { name: "Others", value: 8.1, color: "#9CA3AF" },
-];
+  const getColorClass = () => {
+    if (totalRequests === 0) return "bg-slate-400";
+    if (rate <= 39) return "bg-[#EF4444]";
+    if (rate <= 79) return "bg-[#EAB308]";
+    return "bg-[#10B981]";
+  };
+
+  const statusText =
+    totalRequests === 0
+      ? "No Data Available"
+      : rate === 0
+        ? `No Requests Yet (0 / ${totalRequests} requests)`
+        : `${rate}% (${approvedRequests} / ${totalRequests} requests)`;
+
+  return (
+    <div>
+      <div className="flex justify-between text-xs font-bold text-slate-500 dark:text-[#9CA3AF] mb-2">
+        <span>{label}</span>
+        <span className="text-slate-400 dark:text-[#6B7280]">{statusText}</span>
+      </div>
+      <div className="w-full bg-slate-100 dark:bg-[#374151] rounded-full h-2.5 overflow-hidden shadow-inner dark:shadow-none">
+        <div className={`${getColorClass()} h-full rounded-full shadow-sm dark:shadow-none`} style={{ width: `${Math.max(0, Math.min(100, rate))}%` }}></div>
+      </div>
+    </div>
+  );
+}
 
 export default function DashboardClient() {
   const { theme } = useTheme();
   const [mounted, setMounted] = useState(false);
-  const [counts, setCounts] = useState({ residents: 0, documents: 0, inventory: 0, pendingDocs: 0 });
+  const [counts, setCounts] = useState({
+    residents: 0,
+    documents: 0,
+    inventory: 0,
+    pendingDocs: 0,
+    healthConsultations: 0,
+    paymentRecords: 0,
+  });
   const [activities, setActivities] = useState<any[]>([]);
   const [docs, setDocs] = useState<any[]>([]);
+  const [inventoryItems, setInventoryItems] = useState<any[]>([]);
+  const [consultations, setConsultations] = useState<any[]>([]);
+  const [revenueRows, setRevenueRows] = useState<any[]>([]);
+  const [borrowRecords, setBorrowRecords] = useState<any[]>([]);
+  const [todayTick, setTodayTick] = useState(Date.now());
 
   useEffect(() => {
     setMounted(true);
@@ -60,78 +85,227 @@ export default function DashboardClient() {
     const usD = onSnapshot(collection(db, "documents"), s => {
        let pending = 0;
        const docsArr = s.docs.map(doc => {
-          if (doc.data().status === "Pending") pending++;
+          const status = String(doc.data().status || "").trim().toLowerCase();
+          const isOpenRequest = status !== "approved" && status !== "released" && status !== "completed";
+          if (isOpenRequest) pending++;
           return doc.data();
        });
        setDocs(docsArr);
        setCounts(c => ({...c, documents: s.size, pendingDocs: pending}));
     });
-    const usI = onSnapshot(collection(db, "inventory"), s => setCounts(c => ({...c, inventory: s.size})));
+    const usI = onSnapshot(collection(db, "inventory"), s => {
+      const inv = s.docs.map((d) => d.data());
+      setInventoryItems(inv);
+      setCounts(c => ({...c, inventory: s.size}));
+    });
+    const usC = onSnapshot(collection(db, "consultations"), s => {
+      const rows = s.docs.map((d) => d.data());
+      setConsultations(rows);
+      setCounts(c => ({ ...c, healthConsultations: s.size }));
+    });
+    const usP = onSnapshot(collection(db, "revenue"), s => {
+      const rows = s.docs.map((d) => d.data());
+      setRevenueRows(rows);
+      setCounts(c => ({ ...c, paymentRecords: s.size }));
+    });
+    const usB = onSnapshot(collection(db, "borrow_records"), s => {
+      setBorrowRecords(s.docs.map((d) => d.data()));
+    });
     
     const usA = onSnapshot(query(collection(db, "activities"), orderBy("createdAt", "desc"), limit(10)), s => {
       setActivities(s.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
-    return () => { usR(); usD(); usI(); usA(); };
+    return () => { usR(); usD(); usI(); usC(); usP(); usB(); usA(); };
   }, []);
 
+  useEffect(() => {
+    const timer = setInterval(() => setTodayTick(Date.now()), 60 * 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const toPercent = (num: number, den: number) => {
+    if (!den) return 0;
+    const pct = Math.round((num / den) * 100);
+    return Math.max(0, Math.min(100, pct));
+  };
+
+  const getRowDate = (row: any): Date | null => {
+    if (row?.createdAt?.toDate) return row.createdAt.toDate();
+    if (row?.createdAt?.seconds) return new Date(row.createdAt.seconds * 1000);
+    if (row?.dateStr) {
+      const d = new Date(row.dateStr);
+      return isNaN(d.getTime()) ? null : d;
+    }
+    return null;
+  };
+
+
   const isDark = mounted && theme === "dark";
+  const formatPeso = (value: number) =>
+    `P${new Intl.NumberFormat("en-PH", { maximumFractionDigits: 0 }).format(value || 0)}`;
 
   // Derived Dynamic Chart Data
   let totalRev = 0;
-  const svcGroups = { 'Clearance': 0, 'Permit': 0, 'Certificate': 0, 'Others': 0 };
-  const revGroups = { 'Clearance': 0, 'Permit': 0, 'Certificate': 0, 'Others': 0 };
-  let clearanceTotal=0, clearanceApp=0, certTotal=0, certApp=0, permitTotal=0, permitApp=0;
+  const svcGroups = { Clearance: 0, Permit: 0, Residency: 0, Indigency: 0, Others: 0 };
+  const revGroups = { Clearance: 0, Permit: 0, Residency: 0, Indigency: 0, Others: 0 };
+  let clearanceTotal=0, clearanceApp=0, permitTotal=0, permitApp=0;
+  let residencyTotal=0, residencyApp=0, indigencyTotal=0, indigencyApp=0;
+  let paidEligible=0, paidDone=0;
 
   docs.forEach(d => {
     const f = parseFloat((d.fee || "0").replace(/[^0-9.]/g, "")) || 0;
     totalRev += f;
     const t = d.type || "";
     
-    if (t.includes('Clearance')) { 
-      svcGroups['Clearance']++; revGroups['Clearance'] += f; 
+    if (t.includes('Clearance') && !t.includes('Residency') && !t.includes('Indigency')) { 
+      svcGroups.Clearance++; revGroups.Clearance += f; 
       clearanceTotal++; if(d.status==='Approved' || d.status==='Released') clearanceApp++;
     } else if (t.includes('Permit') || t.includes('Business')) { 
-      svcGroups['Permit']++; revGroups['Permit'] += f; 
+      svcGroups.Permit++; revGroups.Permit += f; 
       permitTotal++; if(d.status==='Approved' || d.status==='Released') permitApp++;
-    } else if (t.includes('Certificate') || t.includes('Indigency')) { 
-      svcGroups['Certificate']++; revGroups['Certificate'] += f; 
-      certTotal++; if(d.status==='Approved' || d.status==='Released') certApp++;
+    } else if (t.includes('Residency')) {
+      svcGroups.Residency++; revGroups.Residency += f;
+      residencyTotal++; if(d.status==='Approved' || d.status==='Released') residencyApp++;
+    } else if (t.includes('Indigency')) { 
+      svcGroups.Indigency++; revGroups.Indigency += f; 
+      indigencyTotal++; if(d.status==='Approved' || d.status==='Released') indigencyApp++;
     } else { 
-      svcGroups['Others']++; revGroups['Others'] += f; 
+      svcGroups.Others++; revGroups.Others += f; 
+    }
+    if (f > 0) {
+      paidEligible++;
+      if (d.isPaid) paidDone++;
     }
   });
 
   const dynamicServiceData = [
-    { name: "Certificate", value: svcGroups['Certificate'], fill: "#3B82F6" },
-    { name: "Clearance", value: svcGroups['Clearance'], fill: "#8B5CF6" },
-    { name: "Permit", value: svcGroups['Permit'], fill: "#10B981" },
-    { name: "Others", value: svcGroups['Others'], fill: "#F59E0B" },
+    { name: "Indigency", value: svcGroups.Indigency, fill: "#93C5FD" },
+    { name: "Clearance", value: svcGroups.Clearance, fill: "#C4B5FD" },
+    { name: "Permit", value: svcGroups.Permit, fill: "#34D399" },
+    { name: "Residency", value: svcGroups.Residency, fill: "#FCA5A5" },
+    { name: "Others", value: svcGroups.Others, fill: "#FCD34D" },
   ];
 
   const dynamicDistributionData = [
-    { name: "Clearances", value: totalRev > 0 ? Number(((revGroups['Clearance']/totalRev)*100).toFixed(1)) : 0, color: "#8B5CF6" },
-    { name: "Permits", value: totalRev > 0 ? Number(((revGroups['Permit']/totalRev)*100).toFixed(1)) : 0, color: "#10B981" },
-    { name: "Certificates", value: totalRev > 0 ? Number(((revGroups['Certificate']/totalRev)*100).toFixed(1)) : 0, color: "#3B82F6" },
-    { name: "Others", value: totalRev > 0 ? Number(((revGroups['Others']/totalRev)*100).toFixed(1)) : 0, color: "#F59E0B" },
+    { name: "Clearances", value: totalRev > 0 ? Number(((revGroups.Clearance/totalRev)*100).toFixed(1)) : 0, color: "#8B5CF6" },
+    { name: "Permits", value: totalRev > 0 ? Number(((revGroups.Permit/totalRev)*100).toFixed(1)) : 0, color: "#10B981" },
+    { name: "Residency", value: totalRev > 0 ? Number(((revGroups.Residency/totalRev)*100).toFixed(1)) : 0, color: "#3B82F6" },
+    { name: "Indigency", value: totalRev > 0 ? Number(((revGroups.Indigency/totalRev)*100).toFixed(1)) : 0, color: "#F59E0B" },
+    { name: "Others", value: totalRev > 0 ? Number(((revGroups.Others/totalRev)*100).toFixed(1)) : 0, color: "#EC4899" },
   ].filter(d => d.value > 0);
 
   if (dynamicDistributionData.length === 0) {
       dynamicDistributionData.push({ name: "No Data", value: 100, color: "#4B5563" });
   }
 
-  const dynamicServiceHealth = [
-     { label: "Clearances", val: clearanceTotal > 0 ? Math.round((clearanceApp/clearanceTotal)*100) : 0, color: "bg-[#8B5CF6]" },
-     { label: "Certificates", val: certTotal > 0 ? Math.round((certApp/certTotal)*100) : 0, color: "bg-[#3B82F6]" },
-     { label: "Permits", val: permitTotal > 0 ? Math.round((permitApp/permitTotal)*100) : 0, color: "bg-[#10B981]" },
+  const countApproved = (rows: any[]) =>
+    rows.filter((r) => {
+      const status = String(r?.status || "").trim().toLowerCase();
+      return status === "approved" || status === "released" || status === "completed" || status === "done" || status === "paid" || status === "renewed";
+    }).length;
+
+  const residencyRows = docs.filter((d) => String(d?.type || "").toLowerCase().includes("residency"));
+  const indigencyRows = docs.filter((d) => String(d?.type || "").toLowerCase().includes("indigency"));
+  const clearanceRows = docs.filter((d) => {
+    const t = String(d?.type || "").toLowerCase();
+    return t.includes("clearance") && !t.includes("residency") && !t.includes("indigency");
+  });
+  const permitRows = docs.filter((d) => {
+    const t = String(d?.type || "").toLowerCase();
+    return t.includes("permit") || t.includes("business");
+  });
+  const consultationApproved = consultations.filter((c) => {
+    const status = String(c?.status || "").trim().toLowerCase();
+    return status === "completed" || status === "done" || status === "approved";
+  }).length;
+  const inventoryRequestApproved = borrowRecords.filter((b) => {
+    const status = String(b?.status || "").trim().toLowerCase();
+    return status === "approved" || status === "released" || status === "completed" || status === "returned";
+  }).length;
+
+  const dynamicServiceHealth: ServicePerformanceMetric[] = [
+     {
+       label: "Residency",
+       totalRequests: residencyRows.length,
+       approvedRequests: countApproved(residencyRows),
+       rate: toPercent(countApproved(residencyRows), residencyRows.length),
+     },
+     {
+       label: "Indigency",
+       totalRequests: indigencyRows.length,
+       approvedRequests: countApproved(indigencyRows),
+       rate: toPercent(countApproved(indigencyRows), indigencyRows.length),
+     },
+     {
+       label: "Health Consultation",
+       totalRequests: consultations.length,
+       approvedRequests: consultationApproved,
+       rate: toPercent(consultationApproved, consultations.length),
+     },
+     {
+       label: "Payment Processing",
+       totalRequests: paidEligible,
+       approvedRequests: paidDone,
+       rate: toPercent(paidDone, paidEligible),
+     },
+     {
+       label: "Inventory",
+       totalRequests: borrowRecords.length,
+       approvedRequests: inventoryRequestApproved,
+       rate: toPercent(inventoryRequestApproved, borrowRecords.length),
+     },
+     {
+       label: "Clearances",
+       totalRequests: clearanceRows.length,
+       approvedRequests: countApproved(clearanceRows),
+       rate: toPercent(countApproved(clearanceRows), clearanceRows.length),
+     },
+     {
+       label: "Permits",
+       totalRequests: permitRows.length,
+       approvedRequests: countApproved(permitRows),
+       rate: toPercent(countApproved(permitRows), permitRows.length),
+     },
   ];
 
-  const dynamicRevenueData = revenueData.map((rd, idx) => {
-      // Modify the last object in revenueData to match today's live revenue dynamically
-      if (idx === revenueData.length - 1 && docs.length > 0) {
-          return { ...rd, thisMonth: totalRev };
-      }
-      return rd;
+  const todayTransactions = revenueRows.filter((r) => {
+    const d = getRowDate(r);
+    if (!d) return false;
+    const now = new Date(todayTick);
+    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+  }).length;
+
+  const monthTotals = new Map<string, number>();
+  docs.forEach((d) => {
+    const fee = parseFloat((d.fee || "0").replace(/[^0-9.]/g, "")) || 0;
+    let parsedDate: Date | null = null;
+    if (d.createdAt?.toDate) {
+      parsedDate = d.createdAt.toDate();
+    } else if (d.createdAt?.seconds) {
+      parsedDate = new Date(d.createdAt.seconds * 1000);
+    } else if (d.dateStr) {
+      const dateFromString = new Date(d.dateStr);
+      if (!isNaN(dateFromString.getTime())) parsedDate = dateFromString;
+    }
+    if (!parsedDate) return;
+    const key = `${parsedDate.getFullYear()}-${parsedDate.getMonth()}`;
+    monthTotals.set(key, (monthTotals.get(key) || 0) + fee);
+  });
+
+  const dynamicRevenueData = Array.from({ length: 7 }).map((_, idx) => {
+    const date = new Date();
+    date.setDate(1);
+    date.setMonth(date.getMonth() - (6 - idx));
+    const key = `${date.getFullYear()}-${date.getMonth()}`;
+    const thisMonth = monthTotals.get(key) || 0;
+    const prevMonthDate = new Date(date.getFullYear(), date.getMonth() - 1, 1);
+    const prevKey = `${prevMonthDate.getFullYear()}-${prevMonthDate.getMonth()}`;
+    const lastMonth = monthTotals.get(prevKey) || 0;
+    return {
+      name: MONTH_NAMES[date.getMonth()],
+      thisMonth,
+      lastMonth,
+    };
   });
 
   return (
@@ -143,9 +317,9 @@ export default function DashboardClient() {
           <h1 className="text-2xl font-bold text-slate-800 dark:text-[#F9FAFB] tracking-tight">Dashboard Overview</h1>
         </div>
         <div className="flex items-center">
-           <button className="px-5 py-2.5 bg-[#3B82F6] text-white rounded-xl text-sm font-bold shadow-md shadow-[#3B82F6]/30 dark:shadow-none hover:bg-[#2563eb] transition-colors">
-             Generate Report
-           </button>
+           <Link href="/dashboard/officials" className="px-5 py-2.5 bg-[#3B82F6] text-white rounded-xl text-sm font-bold shadow-md shadow-[#3B82F6]/30 dark:shadow-none hover:bg-[#2563eb] transition-colors">
+             Barangay List
+           </Link>
         </div>
       </div>
 
@@ -153,9 +327,9 @@ export default function DashboardClient() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
         {[
           { title: "Total Residents", count: counts.residents || "0", change: "Live", isUp: true, icon: Users, color: "text-[#3B82F6]", bg: "bg-blue-50 dark:bg-blue-900/20" },
-          { title: "Document Requests", count: counts.documents || "0", change: "Live", isUp: true, icon: FileText, color: "text-[#8B5CF6]", bg: "bg-purple-50 dark:bg-purple-900/20" },
-          { title: "Inventory Items", count: counts.inventory || "0", change: "Live", isUp: true, icon: Package, color: "text-[#22C55E]", bg: "bg-green-50 dark:bg-green-900/20" },
-          { title: "Pending Approvals", count: counts.pendingDocs || "0", change: "Live", isUp: true, icon: CheckCircle, color: "text-[#F59E0B]", bg: "bg-yellow-50 dark:bg-yellow-900/20" },
+          { title: "Pending Request", count: counts.documents || "0", change: "Live", isUp: true, icon: FileText, color: "text-[#8B5CF6]", bg: "bg-purple-50 dark:bg-purple-900/20" },
+          { title: "Today's Transactions", count: todayTransactions || "0", change: "Live", isUp: true, icon: Package, color: "text-[#22C55E]", bg: "bg-green-50 dark:bg-green-900/20" },
+          { title: "Patients", count: counts.pendingDocs || "0", change: "Live", isUp: true, icon: CheckCircle, color: "text-[#F59E0B]", bg: "bg-yellow-50 dark:bg-yellow-900/20" },
         ].map((stat, i) => (
           <div key={i} className="bg-white dark:bg-[#1F2937] rounded-2xl border border-slate-100 dark:border-[#374151] p-6 shadow-sm hover:shadow-md dark:shadow-none dark:hover:border-slate-500 transition-all">
             <div className="flex justify-between items-start mb-4">
@@ -194,11 +368,13 @@ export default function DashboardClient() {
             </div>
             <div className="h-72 w-full mt-2">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={dynamicRevenueData} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
+                  <LineChart data={dynamicRevenueData} margin={{ top: 8, right: 12, left: 8, bottom: 8 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDark ? "#374151" : "#f1f1f1"} />
                   <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: isDark ? '#9CA3AF' : '#a0a0a0', fontSize: 12, fontWeight: 600 }} dy={10} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fill: isDark ? '#9CA3AF' : '#a0a0a0', fontSize: 12, fontWeight: 600 }} />
+                  <YAxis axisLine={false} tickLine={false} width={48} tickFormatter={(val) => formatPeso(Number(val))} tick={{ fill: isDark ? '#9CA3AF' : '#a0a0a0', fontSize: 12, fontWeight: 600 }} />
                   <Tooltip 
+                    formatter={(value: any, name: any) => [formatPeso(Number(value)), name === "thisMonth" ? "This month" : "Last month"]}
+                    labelFormatter={(label) => `${label}`}
                     contentStyle={{ 
                       borderRadius: '12px', 
                       backgroundColor: isDark ? '#111827' : '#fff',
@@ -219,12 +395,13 @@ export default function DashboardClient() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Most Requested Services */}
             <div className="bg-white dark:bg-[#1F2937] rounded-2xl shadow-sm dark:shadow-none border border-slate-100 dark:border-[#374151] p-6 transition-colors">
-              <h3 className="font-bold text-slate-800 dark:text-[#F9FAFB] mb-6">Service Volume</h3>
+              <h3 className="font-bold text-slate-800 dark:text-[#F9FAFB] mb-6">Most Requested Services</h3>
               <div className="h-52 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={dynamicServiceData} margin={{ top: 0, right: 0, left: -25, bottom: 0 }}>
-                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: isDark ? '#9CA3AF' : '#a0a0a0', fontSize: 11, fontWeight: 600 }} dy={10} />
-                    <YAxis axisLine={false} tickLine={false} tick={{ fill: isDark ? '#9CA3AF' : '#a0a0a0', fontSize: 11, fontWeight: 600 }} tickFormatter={(val) => `${val}`} />
+                <ResponsiveContainer width="100%" height={208}>
+                  <BarChart data={dynamicServiceData} margin={{ top: 10, right: 8, left: 8, bottom: 0 }} barGap={12}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDark ? "#374151" : "#E5E7EB"} />
+                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: isDark ? '#9CA3AF' : '#6B7280', fontSize: 11, fontWeight: 600 }} dy={8} />
+                    <YAxis axisLine={false} tickLine={false} width={34} tick={{ fill: isDark ? '#9CA3AF' : '#6B7280', fontSize: 11, fontWeight: 600 }} />
                     <Tooltip 
                       cursor={{ fill: isDark ? '#374151' : '#f9f9f9' }} 
                       contentStyle={{ 
@@ -235,7 +412,7 @@ export default function DashboardClient() {
                         fontWeight: 600 
                       }} 
                     />
-                    <Bar dataKey="value" radius={[6, 6, 0, 0]}>
+                    <Bar dataKey="value" radius={[10, 10, 10, 10]} maxBarSize={30}>
                       {dynamicServiceData.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={entry.fill} />
                       ))}
@@ -250,7 +427,7 @@ export default function DashboardClient() {
               <h3 className="font-bold text-slate-800 dark:text-[#F9FAFB] mb-2">Revenue Distribution</h3>
               <div className="flex-1 flex items-center justify-between">
                 <div className="w-1/2 h-44">
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height={176}>
                     <PieChart>
                       <Pie
                         data={dynamicDistributionData}
@@ -297,18 +474,13 @@ export default function DashboardClient() {
         <div className="flex flex-col space-y-6">
            {/* Service Status Overview */}
            <div className="bg-white dark:bg-[#1F2937] rounded-2xl shadow-sm dark:shadow-none border border-slate-100 dark:border-[#374151] p-6 flex flex-col transition-colors">
-              <h3 className="font-bold text-slate-800 dark:text-[#F9FAFB] mb-6">Service Health</h3>
+              <h3 className="font-bold text-slate-800 dark:text-[#F9FAFB] mb-1">Service Performance Overview</h3>
+              <p className="text-[11px] font-semibold text-slate-500 dark:text-[#9CA3AF] mb-6" title="Represents percentage of completed service requests">
+                Represents percentage of completed service requests
+              </p>
               <div className="space-y-5">
-                {dynamicServiceHealth.map((s, i) => (
-                  <div key={i}>
-                    <div className="flex justify-between text-xs font-bold text-slate-500 dark:text-[#9CA3AF] mb-2">
-                      <span>{s.label}</span>
-                      <span className="text-slate-400 dark:text-[#6B7280]">{s.val}%</span>
-                    </div>
-                    <div className="w-full bg-slate-100 dark:bg-[#374151] rounded-full h-2.5 overflow-hidden shadow-inner dark:shadow-none">
-                      <div className={`${s.color} h-full rounded-full shadow-sm dark:shadow-none`} style={{ width: `${s.val}%` }}></div>
-                    </div>
-                  </div>
+                {dynamicServiceHealth.map((metric, i) => (
+                  <ServicePerformanceRow key={i} metric={metric} />
                 ))}
               </div>
             </div>

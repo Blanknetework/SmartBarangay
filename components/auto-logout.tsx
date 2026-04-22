@@ -13,7 +13,7 @@ export function AutoLogout() {
     if (!role) return; 
 
 
-    const TIMEOUT_MS = 0.30 * 60 * 1000; 
+    const TIMEOUT_MS = 15 * 60 * 1000; 
 
     let timeoutId: NodeJS.Timeout;
 

@@ -21,8 +21,6 @@ export function RouteGuard({ children }: { children: React.ReactNode }) {
         return;
       }
       
-      // Find the current route matching navItems
-      // Note: we can also check prefixes if the route is /dashboard/inventory/item
       const matchedNavItem = navItems.find((item) => pathname.startsWith(item.href) && item.href !== "/dashboard");
 
       if (matchedNavItem) {
@@ -31,9 +29,6 @@ export function RouteGuard({ children }: { children: React.ReactNode }) {
           return;
         }
       } else if (pathname !== "/dashboard" && pathname.startsWith("/dashboard")) {
-          // If we are on /dashboard/something that is NOT in navItems, maybe allow? 
-          // Or strictly deny. Let's strictly deny unless it's /dashboard exactly
-          // Actually, let's keep it simple for the demo.
       }
       
       setIsAuthorized(true);

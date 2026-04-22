@@ -60,7 +60,7 @@ export function Header() {
               <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
               <SheetDescription className="sr-only">Mobile navigation menu</SheetDescription>
               <div className="flex items-center space-x-3 p-6 border-b border-slate-200 dark:border-[#374151]">
-                <Image src="/Barangay1.png" alt="Barangay Logo" width={40} height={40} className="object-contain shrink-0" priority />
+                <Image src="/Barangay1.png" alt="Barangay Logo" width={40} height={40} className="object-contain shrink-0" style={{ width: 'auto', height: '40px' }} priority />
                 <div className="flex flex-col justify-center">
                   <span className="font-black text-[13px] tracking-tighter text-slate-900 dark:text-[#F9FAFB] leading-none">
                     SMARTBARANGAY
@@ -96,7 +96,7 @@ export function Header() {
           </Sheet>
         </div>
 
-        <Image src="/Barangay1.png" alt="Barangay Logo" width={60} height={60} className="object-contain shrink-0" priority />
+        <Image src="/Barangay1.png" alt="Barangay Logo" width={60} height={60} className="object-contain shrink-0" style={{ width: 'auto', height: '60px' }} priority />
         <div className="flex flex-col justify-center hidden sm:flex transition-colors">
           <span className="font-black text-[15px] tracking-tighter text-slate-900 dark:text-[#F9FAFB] leading-none transition-colors">
             SMARTBARANGAY
@@ -120,9 +120,9 @@ export function Header() {
             {theme === "dark" ? <Sun size={20} /> : <Moon size={20} />}
           </button>
         )}
-        <button className="p-2.5 rounded-full hover:bg-slate-100 dark:hover:bg-[#1F2937] text-slate-500 dark:text-[#9CA3AF] transition-colors">
+        <Link href="/dashboard/recycle-bin" className="p-2.5 rounded-full hover:bg-slate-100 dark:hover:bg-[#1F2937] text-slate-500 dark:text-[#9CA3AF] transition-colors">
           <Settings size={20} />
-        </button>
+        </Link>
         <div className="relative">
           <button 
             onClick={() => setShowNotifications(!showNotifications)} 
