@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, FormEvent, useRef } from "react";
-import { Search, Plus, Check, FileText, CheckCircle2, Clock, CheckSquare, Settings2, SlidersHorizontal, HandCoins, Printer, User, Trash2 } from "lucide-react";
+import { Search, Plus, Check, FileText, CheckCircle2, Clock, CheckSquare, Settings2, SlidersHorizontal, HandCoins, Printer, User, Trash2, AlertTriangle } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, serverTimestamp, query, orderBy, doc, limit } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -57,6 +57,7 @@ export default function DocumentRequestPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
   const [showPaymentSuccessDialog, setShowPaymentSuccessDialog] = useState(false);
+  const [validationModal, setValidationModal] = useState({ isOpen: false, message: "" });
   const [paymentSuccessMessage, setPaymentSuccessMessage] = useState("");
   const [activeTab, setActiveTab] = useState("All");
   const [documentSearchTerm, setDocumentSearchTerm] = useState("");
@@ -197,6 +198,12 @@ export default function DocumentRequestPage() {
     e.preventDefault();
     setIsSubmitting(true);
     
+    if (!formData.name || !formData.age || !formData.address || !formData.city || !formData.type || !formData.purpose) {
+      setValidationModal({ isOpen: true, message: "Please fill out all required fields." });
+      setIsSubmitting(false);
+      return;
+    }
+
     try {
       let dataResult: any = null;
       let maxRetries = 3;
@@ -911,6 +918,27 @@ export default function DocumentRequestPage() {
                 Confirm
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Validation Modal */}
+      {validationModal.isOpen && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-[#F8F9FA] dark:bg-[#111827] w-full max-w-[400px] rounded-[24px] shadow-2xl border-2 border-slate-300 dark:border-slate-600 overflow-hidden flex flex-col items-center p-10 text-center scale-in-95 duration-200">
+            <div className="w-[100px] h-[100px] flex items-center justify-center mb-4">
+              <AlertTriangle size={80} strokeWidth={2.5} className="text-[#A50000]" />
+            </div>
+            <h2 className="text-[20px] font-black text-slate-800 dark:text-[#F9FAFB] mb-4 tracking-tight">Missing Information</h2>
+            <p className="text-slate-700 dark:text-[#D1D5DB] text-[14px] mb-8 font-medium px-2 leading-relaxed">
+              {validationModal.message}
+            </p>
+            <button 
+              onClick={() => setValidationModal({ isOpen: false, message: "" })}
+              className="bg-[#A50000] hover:bg-[#800000] text-white px-10 py-2.5 rounded-xl text-sm font-bold transition-colors shadow-sm min-w-[120px]"
+            >
+              OK
+            </button>
           </div>
         </div>
       )}

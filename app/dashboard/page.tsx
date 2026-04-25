@@ -69,6 +69,7 @@ export default function DashboardClient() {
     pendingDocs: 0,
     healthConsultations: 0,
     paymentRecords: 0,
+    patients: 0,
   });
   const [activities, setActivities] = useState<any[]>([]);
   const [docs, setDocs] = useState<any[]>([]);
@@ -81,7 +82,13 @@ export default function DashboardClient() {
   useEffect(() => {
     setMounted(true);
     
-    const usR = onSnapshot(collection(db, "residents"), s => setCounts(c => ({...c, residents: s.size})));
+    const usR = onSnapshot(collection(db, "residents"), s => {
+      let pCount = 0;
+      s.forEach(doc => {
+        if (doc.data().hasMedicalRecord) pCount++;
+      });
+      setCounts(c => ({...c, residents: s.size, patients: pCount}));
+    });
     const usD = onSnapshot(collection(db, "documents"), s => {
        let pending = 0;
        const docsArr = s.docs.map(doc => {
@@ -329,7 +336,7 @@ export default function DashboardClient() {
           { title: "Total Residents", count: counts.residents || "0", change: "Live", isUp: true, icon: Users, color: "text-[#3B82F6]", bg: "bg-blue-50 dark:bg-blue-900/20" },
           { title: "Pending Request", count: counts.documents || "0", change: "Live", isUp: true, icon: FileText, color: "text-[#8B5CF6]", bg: "bg-purple-50 dark:bg-purple-900/20" },
           { title: "Today's Transactions", count: todayTransactions || "0", change: "Live", isUp: true, icon: Package, color: "text-[#22C55E]", bg: "bg-green-50 dark:bg-green-900/20" },
-          { title: "Patients", count: counts.pendingDocs || "0", change: "Live", isUp: true, icon: CheckCircle, color: "text-[#F59E0B]", bg: "bg-yellow-50 dark:bg-yellow-900/20" },
+          { title: "Patients", count: counts.patients || "0", change: "Live", isUp: true, icon: CheckCircle, color: "text-[#F59E0B]", bg: "bg-yellow-50 dark:bg-yellow-900/20" },
         ].map((stat, i) => (
           <div key={i} className="bg-white dark:bg-[#1F2937] rounded-2xl border border-slate-100 dark:border-[#374151] p-6 shadow-sm hover:shadow-md dark:shadow-none dark:hover:border-slate-500 transition-all">
             <div className="flex justify-between items-start mb-4">

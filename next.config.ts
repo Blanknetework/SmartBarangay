@@ -1,6 +1,15 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Allow opening dev server from Tailscale/private-network host in development.
+  // Update this value if your Tailscale IPv4 changes.
+  allowedDevOrigins: ["100.93.39.88"],
+
+  // Prevent Turbopack from inferring a higher parent folder as workspace root.
+  turbopack: {
+    root: process.cwd(),
+  },
+
   /* Information Assurance: Strict Security Headers */
   async headers() {
     return [

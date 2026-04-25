@@ -44,6 +44,7 @@ export default function ResidentsPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
+  const [validationModal, setValidationModal] = useState({ isOpen: false, message: "" });
   const [residentToDelete, setResidentToDelete] = useState<string | null>(null);
 
   const [firstNamePreview, setFirstNamePreview] = useState("");
@@ -108,6 +109,18 @@ export default function ResidentsPage() {
       createdAt: serverTimestamp(),
       profilePicUrl: "",
     };
+
+    if (!data.firstName || !data.lastName || !data.address) {
+      setValidationModal({ isOpen: true, message: "Please fill out all required resident information." });
+      setIsSubmitting(false);
+      return;
+    }
+
+    if (!data.firstName || !data.lastName || !data.address) {
+      setValidationModal({ isOpen: true, message: "Please fill out all required resident information." });
+      setIsSubmitting(false);
+      return;
+    }
 
     try {
       if (customProfileImage && fileInputRef.current?.files?.[0]) {
@@ -182,6 +195,12 @@ export default function ResidentsPage() {
       city: formData.get("city"),
       province: formData.get("province"),
     } as any;
+
+    if (!data.firstName || !data.lastName || !data.address) {
+      setValidationModal({ isOpen: true, message: "Please fill out all required resident information." });
+      setIsSubmitting(false);
+      return;
+    }
 
     try {
       if (customProfileImage && fileInputRef.current?.files?.[0]) {

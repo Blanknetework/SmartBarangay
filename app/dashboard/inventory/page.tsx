@@ -25,6 +25,7 @@ export default function InventoryPage() {
   const [borrowResidentInfo, setBorrowResidentInfo] = useState<any>(null);
   const [residents, setResidents] = useState<any[]>([]);
   const [successDialogMessage, setSuccessDialogMessage] = useState("");
+  const [validationModal, setValidationModal] = useState({ isOpen: false, message: "" });
   const [activities, setActivities] = useState<any[]>([]);
   
   const [showFilterMenu, setShowFilterMenu] = useState(false);
@@ -56,7 +57,10 @@ export default function InventoryPage() {
 
   const handleAddItem = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newItem.name || !newItem.qty) return;
+    if (!newItem.name || !newItem.qty) {
+      setValidationModal({ isOpen: true, message: "Please enter both item name and quantity." });
+      return;
+    }
 
     const parsedQty = parseInt(newItem.qty) || 0;
     const itemToAdd = {
@@ -108,6 +112,43 @@ export default function InventoryPage() {
     } catch (err) {
       console.error(err);
     }
+  };
+
+  const handleBorrowItem = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const item = formData.get("item") as string;
+    const qty = formData.get("qty") as string;
+    const borrowDate = formData.get("borrowDate") as string;
+    const returnDate = formData.get("returnDate") as string;
+
+    if (!borrowResidentId || !item || !qty || !borrowDate || !returnDate) {
+      setValidationModal({ isOpen: true, message: "Please fill out all required fields to borrow an item." });
+      return;
+    }
+
+    try {
+      await addDoc(collection(db, "borrow_records"), {
+          residentId: borrowResidentId,
+          residentName: borrowResidentInfo ? `${borrowResidentInfo.firstName} ${borrowResidentInfo.lastName}` : "Unknown",
+          item: item,
+          qty: Number(qty),
+          borrowDate: borrowDate,
+          returnDate: returnDate,
+          status: "Pending",
+          createdAt: serverTimestamp()
+      });
+      await addDoc(collection(db, "activities"), {
+          title: "Item Borrowed",
+          description: `A resident just borrowed ${qty}x ${item} from the inventory.`,
+          type: "inventory",
+          createdAt: serverTimestamp()
+      });
+      setIsBorrowModalOpen(false);
+      setBorrowResidentId("");
+      setBorrowResidentInfo(null);
+      setSuccessDialogMessage("The item has been successfully dispensed. Transaction recorded.");
+    } catch (err) { console.error(err); }
   };
 
   const filteredItems = items.filter(item => {
@@ -470,26 +511,7 @@ export default function InventoryPage() {
             <div className="px-8 pt-8 pb-6">
               <h2 className="text-2xl font-black text-slate-800 dark:text-[#F9FAFB] tracking-tight mb-6">Borrow Item</h2>
               
-              <form onSubmit={async (e) => { 
-                  e.preventDefault(); 
-                  try {
-                    await addDoc(collection(db, "borrow_records"), {
-                        residentId: borrowResidentId,
-                        residentName: borrowResidentInfo ? `${borrowResidentInfo.firstName} ${borrowResidentInfo.lastName}` : "Unknown",
-                        item: "Assigned Item",
-                        status: "Pending",
-                        createdAt: serverTimestamp()
-                    });
-                    await addDoc(collection(db, "activities"), {
-                        title: "Item Borrowed",
-                        description: `A resident just borrowed an item from the inventory.`,
-                        type: "inventory",
-                        createdAt: serverTimestamp()
-                    });
-                    setIsBorrowModalOpen(false); 
-                    setSuccessDialogMessage("The item has been successfully dispensed. Transaction recorded.");
-                  } catch (err) { console.error(err); }
-              }}>
+              <form onSubmit={handleBorrowItem}>
                 <div className="space-y-4">
                   <div>
                     <label className="block text-[11px] font-bold text-slate-500 dark:text-[#9CA3AF] mb-1.5 ml-1">Resident ID:</label>
@@ -518,10 +540,10 @@ export default function InventoryPage() {
                   <div>
                     <label className="block text-[11px] font-bold text-slate-500 dark:text-[#9CA3AF] mb-1.5 ml-1">Item:</label>
                     <div className="relative">
-                       <select className="w-full bg-slate-50 dark:bg-[#0F172A] border border-slate-200 dark:border-[#374151] rounded-xl px-4 py-3 cursor-pointer text-sm font-bold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#2563EB] appearance-none">
-                          <option>Monobloc Chairs</option>
-                          <option>Tents</option>
-                          <option>Sound System</option>
+                       <select name="item" className="w-full bg-slate-50 dark:bg-[#0F172A] border border-slate-200 dark:border-[#374151] rounded-xl px-4 py-3 cursor-pointer text-sm font-bold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#2563EB] appearance-none">
+                          <option value="Monobloc Chairs">Monobloc Chairs</option>
+                          <option value="Tents">Tents</option>
+                          <option value="Sound System">Sound System</option>
                        </select>
                        <div className="absolute inset-y-0 right-4 flex items-center pointer-events-none">
                           <ChevronDown size={16} className="text-slate-400" />
@@ -531,17 +553,17 @@ export default function InventoryPage() {
                   
                   <div>
                     <label className="block text-[11px] font-bold text-slate-500 dark:text-[#9CA3AF] mb-1.5 ml-1">Quantity:</label>
-                    <input required type="number" min="1" className="w-full bg-slate-50 dark:bg-[#0F172A] border border-slate-200 dark:border-[#374151] rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#2563EB]" defaultValue="1" />
+                    <input name="qty" required type="number" min="1" className="w-full bg-slate-50 dark:bg-[#0F172A] border border-slate-200 dark:border-[#374151] rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#2563EB]" defaultValue="1" />
                   </div>
                   
                   <div>
                     <label className="block text-[11px] font-bold text-slate-500 dark:text-[#9CA3AF] mb-1.5 ml-1">Borrow Date:</label>
-                    <input required type="date" className="w-full bg-slate-50 dark:bg-[#0F172A] border border-slate-200 dark:border-[#374151] rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#2563EB]" />
+                    <input name="borrowDate" required type="date" className="w-full bg-slate-50 dark:bg-[#0F172A] border border-slate-200 dark:border-[#374151] rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#2563EB]" />
                   </div>
                   
                   <div>
                     <label className="block text-[11px] font-bold text-slate-500 dark:text-[#9CA3AF] mb-1.5 ml-1">Return Date:</label>
-                    <input required type="date" className="w-full bg-slate-50 dark:bg-[#0F172A] border border-slate-200 dark:border-[#374151] rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#2563EB]" />
+                    <input name="returnDate" required type="date" className="w-full bg-slate-50 dark:bg-[#0F172A] border border-slate-200 dark:border-[#374151] rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#2563EB]" />
                   </div>
                 </div>
 
@@ -654,6 +676,27 @@ export default function InventoryPage() {
                  <p className="text-sm font-bold text-slate-800 dark:text-[#F9FAFB]">{itemToView.lastUpdated}</p>
                </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Validation Modal */}
+      {validationModal.isOpen && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-[#F8F9FA] dark:bg-[#111827] w-full max-w-[400px] rounded-[24px] shadow-2xl border-2 border-slate-300 dark:border-slate-600 overflow-hidden flex flex-col items-center p-10 text-center scale-in-95 duration-200">
+            <div className="w-[100px] h-[100px] flex items-center justify-center mb-4">
+              <AlertTriangle size={80} strokeWidth={2.5} className="text-[#A50000]" />
+            </div>
+            <h2 className="text-[20px] font-black text-slate-800 dark:text-[#F9FAFB] mb-4 tracking-tight">Missing Information</h2>
+            <p className="text-slate-700 dark:text-[#D1D5DB] text-[14px] mb-8 font-medium px-2 leading-relaxed">
+              {validationModal.message}
+            </p>
+            <button 
+              onClick={() => setValidationModal({ isOpen: false, message: "" })}
+              className="bg-[#A50000] hover:bg-[#800000] text-white px-10 py-2.5 rounded-xl text-sm font-bold transition-colors shadow-sm min-w-[120px]"
+            >
+              OK
+            </button>
           </div>
         </div>
       )}
