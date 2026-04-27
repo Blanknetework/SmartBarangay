@@ -6,7 +6,7 @@ import {
   SlidersHorizontal, Eye, Trash2, ChevronDown, User, Check, ArrowLeft
 } from "lucide-react";
 import { db } from "@/lib/firebase";
-import { collection, onSnapshot, query, addDoc, serverTimestamp, deleteDoc, doc, orderBy, limit } from "firebase/firestore";
+import { collection, onSnapshot, query, addDoc, serverTimestamp, deleteDoc, doc, orderBy, limit, updateDoc } from "firebase/firestore";
 
 export default function InventoryPage() {
   const [items, setItems] = useState<any[]>([]);
@@ -31,6 +31,8 @@ export default function InventoryPage() {
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [filterCategory, setFilterCategory] = useState("All");
 
+  const [borrowRecords, setBorrowRecords] = useState<any[]>([]);
+  const [returnItemModal, setReturnItemModal] = useState<any>(null);
   const [itemToDelete, setItemToDelete] = useState<any>(null);
   const [itemToView, setItemToView] = useState<any>(null);
 
@@ -45,7 +47,10 @@ export default function InventoryPage() {
     const unsubA = onSnapshot(query(collection(db, "activities"), orderBy("createdAt", "desc"), limit(4)), (snap) => {
       setActivities(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
-    return () => { unsubR(); unsubI(); unsubA(); };
+    const unsubB = onSnapshot(query(collection(db, "borrow_records"), orderBy("createdAt", "desc")), (snap) => {
+      setBorrowRecords(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => { unsubR(); unsubI(); unsubA(); unsubB(); };
   }, []);
 
   const handleResidentIdSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -117,13 +122,22 @@ export default function InventoryPage() {
   const handleBorrowItem = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    const item = formData.get("item") as string;
-    const qty = formData.get("qty") as string;
+    const itemData = formData.get("item") as string;
+    const qtyStr = formData.get("qty") as string;
     const borrowDate = formData.get("borrowDate") as string;
     const returnDate = formData.get("returnDate") as string;
 
-    if (!borrowResidentId || !item || !qty || !borrowDate || !returnDate) {
+    if (!borrowResidentId || !itemData || !qtyStr || !borrowDate || !returnDate) {
       setValidationModal({ isOpen: true, message: "Please fill out all required fields to borrow an item." });
+      return;
+    }
+
+    const [itemId, itemName] = itemData.split("|");
+    const qty = Number(qtyStr);
+    const selectedInvItem = items.find(i => i.id === itemId);
+
+    if (!selectedInvItem || Number(selectedInvItem.inStock) < qty) {
+      setValidationModal({ isOpen: true, message: `Not enough stock for ${itemName}. Available: ${selectedInvItem?.inStock || 0}` });
       return;
     }
 
@@ -131,16 +145,24 @@ export default function InventoryPage() {
       await addDoc(collection(db, "borrow_records"), {
           residentId: borrowResidentId,
           residentName: borrowResidentInfo ? `${borrowResidentInfo.firstName} ${borrowResidentInfo.lastName}` : "Unknown",
-          item: item,
-          qty: Number(qty),
+          itemId: itemId,
+          item: itemName,
+          qty: qty,
           borrowDate: borrowDate,
           returnDate: returnDate,
           status: "Pending",
           createdAt: serverTimestamp()
       });
+      
+      const newInStock = Number(selectedInvItem.inStock) - qty;
+      await updateDoc(doc(db, "inventory", itemId), {
+          inStock: newInStock,
+          status: newInStock > 5 ? "Available" : newInStock > 0 ? "Low Stock" : "Out of Stock",
+          lastUpdated: new Date().toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' }).toLowerCase()
+      });
       await addDoc(collection(db, "activities"), {
           title: "Item Borrowed",
-          description: `A resident just borrowed ${qty}x ${item} from the inventory.`,
+          description: `A resident just borrowed ${qty}x ${itemName} from the inventory.`,
           type: "inventory",
           createdAt: serverTimestamp()
       });
@@ -180,7 +202,7 @@ export default function InventoryPage() {
                </div>
             </div>
             <p className="text-[11px] font-bold text-slate-500 dark:text-[#9CA3AF] mb-1">Total Items In Stock</p>
-            <p className="text-2xl font-black text-slate-800 dark:text-white">1</p>
+            <p className="text-2xl font-black text-slate-800 dark:text-white">{items.length}</p>
           </div>
 
           <div className="bg-white dark:bg-[#1F2937] border border-slate-200 dark:border-[#374151] rounded-3xl p-6 shadow-sm dark:shadow-none flex flex-col transition-all">
@@ -193,7 +215,7 @@ export default function InventoryPage() {
                </div>
             </div>
             <p className="text-[11px] font-bold text-slate-500 dark:text-[#9CA3AF] mb-1">Number of items that are running low</p>
-            <p className="text-2xl font-black text-slate-800 dark:text-white">0</p>
+            <p className="text-2xl font-black text-slate-800 dark:text-white">{items.filter(i => i.status === 'Low Stock').length}</p>
           </div>
 
           <div className="bg-white dark:bg-[#1F2937] border border-slate-200 dark:border-[#374151] rounded-3xl p-6 shadow-sm dark:shadow-none flex flex-col transition-all">
@@ -205,8 +227,8 @@ export default function InventoryPage() {
                  <h3 className="text-[15px] font-black text-slate-800 dark:text-[#F9FAFB] leading-tight">Out of<br/>Stock Items</h3>
                </div>
             </div>
-            <p className="text-[11px] font-bold text-slate-500 dark:text-[#9CA3AF] mb-1">Total Items In Stock</p>
-            <p className="text-2xl font-black text-slate-800 dark:text-white">0</p>
+            <p className="text-[11px] font-bold text-slate-500 dark:text-[#9CA3AF] mb-1">Total Items Out of Stock</p>
+            <p className="text-2xl font-black text-slate-800 dark:text-white">{items.filter(i => i.status === 'Out of Stock' || parseInt(i.inStock) === 0).length}</p>
           </div>
         </div>
 
@@ -346,17 +368,42 @@ export default function InventoryPage() {
              
              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 p-6">
                 
-                {/* Simulated Dummy Record indicating there's no dynamic database hooked yet for the Borrow actions */}
-                <div className="border border-slate-200 dark:border-[#374151] rounded-2xl p-6 flex flex-col items-center bg-slate-50 dark:bg-[#111827] shadow-sm hover:shadow-md transition-shadow">
-                   <div className="w-20 h-20 rounded-full border border-slate-200 dark:border-[#374151] overflow-hidden mb-4 bg-white dark:bg-[#1F2937] flex items-center justify-center">
-                      <User size={30} className="text-slate-400" />
-                   </div>
-                   <h3 className="text-sm font-extrabold text-slate-800 dark:text-[#F9FAFB] mb-1">Resident: Carlo Reyes</h3>
-                   <span className="text-[11px] font-bold text-[#EAB308] bg-[#FEF9C3] dark:bg-[#EAB308]/20 px-3 py-1 rounded-full mb-3">2 Items Pending</span>
-                   <button className="flex items-center text-xs font-bold text-[#2563EB] hover:text-[#1D4ED8] bg-white dark:bg-[#1F2937] border border-slate-200 dark:border-[#374151] px-4 py-2 rounded-xl mt-auto w-full justify-center">
-                      View <Eye size={14} className="ml-2" />
-                   </button>
-                </div>
+                {(() => {
+                  const groupedBorrows = borrowRecords.filter(r => r.status === 'Pending').reduce((acc: any, record) => {
+                    if (!acc[record.residentId]) {
+                      acc[record.residentId] = {
+                         residentName: record.residentName,
+                         residentId: record.residentId,
+                         items: []
+                      };
+                    }
+                    acc[record.residentId].items.push(record);
+                    return acc;
+                  }, {});
+                  
+                  const groups = Object.values(groupedBorrows);
+                  if (groups.length === 0) {
+                    return (
+                      <div className="col-span-full flex flex-col items-center justify-center p-12 text-slate-500">
+                        <Package size={48} className="mb-4 opacity-50" />
+                        <p className="font-bold">No items pending to be returned.</p>
+                      </div>
+                    );
+                  }
+                  
+                  return groups.map((group: any) => (
+                    <div key={group.residentId} className="border border-slate-200 dark:border-[#374151] rounded-2xl p-6 flex flex-col items-center bg-slate-50 dark:bg-[#111827] shadow-sm hover:shadow-md transition-shadow">
+                      <div className="w-20 h-20 rounded-full border border-slate-200 dark:border-[#374151] overflow-hidden mb-4 bg-white dark:bg-[#1F2937] flex items-center justify-center">
+                         <User size={30} className="text-slate-400" />
+                      </div>
+                      <h3 className="text-sm font-extrabold text-slate-800 dark:text-[#F9FAFB] mb-1 text-center">{group.residentName}</h3>
+                      <span className="text-[11px] font-bold text-[#EAB308] bg-[#FEF9C3] dark:bg-[#EAB308]/20 px-3 py-1 rounded-full mb-3">{group.items.length} Items Pending</span>
+                      <button onClick={() => setReturnItemModal(group)} className="flex items-center text-xs font-bold text-[#2563EB] hover:text-[#1D4ED8] bg-white dark:bg-[#1F2937] border border-slate-200 dark:border-[#374151] px-4 py-2 rounded-xl mt-auto w-full justify-center transition-colors">
+                         View <Eye size={14} className="ml-2" />
+                      </button>
+                    </div>
+                  ));
+                })()}
 
              </div>
            </div>
@@ -372,11 +419,11 @@ export default function InventoryPage() {
           <div className="bg-white dark:bg-[#1F2937] border border-slate-200 dark:border-[#374151] rounded-2xl p-6 shadow-sm dark:shadow-none">
             <div className="mb-6">
                <h4 className="text-[13px] font-black text-slate-800 dark:text-[#F9FAFB] mb-1">Borrowed Items:</h4>
-               <p className="text-4xl font-normal text-slate-800 dark:text-[#F9FAFB] leading-none tracking-tight">001</p>
+               <p className="text-4xl font-normal text-slate-800 dark:text-[#F9FAFB] leading-none tracking-tight">{String(borrowRecords.filter(r => r.status === 'Pending').length).padStart(3, '0')}</p>
             </div>
             <div>
                <h4 className="text-[13px] font-black text-slate-800 dark:text-[#F9FAFB] mb-1">Returned Items:</h4>
-               <p className="text-2xl font-normal text-slate-800 dark:text-[#F9FAFB] leading-none tracking-tight">000</p>
+               <p className="text-2xl font-normal text-slate-800 dark:text-[#F9FAFB] leading-none tracking-tight">{String(borrowRecords.filter(r => r.status === 'Returned').length).padStart(3, '0')}</p>
             </div>
           </div>
 
@@ -400,18 +447,24 @@ export default function InventoryPage() {
           <div className="bg-white dark:bg-[#1F2937] border border-slate-200 dark:border-[#374151] rounded-2xl p-6 shadow-sm dark:shadow-none">
              <h4 className="text-sm font-black text-slate-800 dark:text-[#F9FAFB] mb-4">Most Borrowed Items</h4>
              <ul className="space-y-4">
-                <li className="flex justify-between items-center text-xs font-bold text-slate-600 dark:text-[#9CA3AF]">
-                  <span>Monobloc Chairs</span>
-                  <span className="text-[#2563EB] bg-[#EFF6FF] dark:bg-[#1E3A8A]/30 px-2 py-1 rounded-md">145x</span>
-                </li>
-                <li className="flex justify-between items-center text-xs font-bold text-slate-600 dark:text-[#9CA3AF]">
-                  <span>Tents</span>
-                  <span className="text-[#2563EB] bg-[#EFF6FF] dark:bg-[#1E3A8A]/30 px-2 py-1 rounded-md">24x</span>
-                </li>
-                <li className="flex justify-between items-center text-xs font-bold text-slate-600 dark:text-[#9CA3AF]">
-                  <span>Sound System</span>
-                  <span className="text-[#2563EB] bg-[#EFF6FF] dark:bg-[#1E3A8A]/30 px-2 py-1 rounded-md">12x</span>
-                </li>
+                {(() => {
+                  const itemCounts: Record<string, number> = {};
+                  borrowRecords.forEach(r => {
+                    if (r.item) {
+                      itemCounts[r.item] = (itemCounts[r.item] || 0) + (r.qty || 1);
+                    }
+                  });
+                  const sorted = Object.entries(itemCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+                  if (sorted.length === 0) {
+                    return <li className="text-xs font-bold text-slate-500 text-center py-4">No borrowed items yet</li>;
+                  }
+                  return sorted.map(([name, count]) => (
+                    <li key={name} className="flex justify-between items-center text-xs font-bold text-slate-600 dark:text-[#9CA3AF]">
+                      <span>{name}</span>
+                      <span className="text-[#2563EB] bg-[#EFF6FF] dark:bg-[#1E3A8A]/30 px-2 py-1 rounded-md">{count}x</span>
+                    </li>
+                  ));
+                })()}
              </ul>
           </div>
 
@@ -541,9 +594,12 @@ export default function InventoryPage() {
                     <label className="block text-[11px] font-bold text-slate-500 dark:text-[#9CA3AF] mb-1.5 ml-1">Item:</label>
                     <div className="relative">
                        <select name="item" className="w-full bg-slate-50 dark:bg-[#0F172A] border border-slate-200 dark:border-[#374151] rounded-xl px-4 py-3 cursor-pointer text-sm font-bold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#2563EB] appearance-none">
-                          <option value="Monobloc Chairs">Monobloc Chairs</option>
-                          <option value="Tents">Tents</option>
-                          <option value="Sound System">Sound System</option>
+                          {items.filter(i => parseInt(i.inStock) > 0).map(invItem => (
+                            <option key={invItem.id} value={`${invItem.id}|${invItem.name}`}>{invItem.name} (In stock: {invItem.inStock})</option>
+                          ))}
+                          {items.filter(i => parseInt(i.inStock) > 0).length === 0 && (
+                            <option value="" disabled>No items available</option>
+                          )}
                        </select>
                        <div className="absolute inset-y-0 right-4 flex items-center pointer-events-none">
                           <ChevronDown size={16} className="text-slate-400" />
@@ -697,6 +753,61 @@ export default function InventoryPage() {
             >
               OK
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Return Item Modal */}
+      {returnItemModal && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setReturnItemModal(null)}>
+          <div className="bg-white dark:bg-[#111827] w-full max-w-xl rounded-[24px] shadow-2xl border border-slate-200 dark:border-[#374151] overflow-hidden flex flex-col scale-in-95 duration-200" onClick={e => e.stopPropagation()}>
+            <div className="px-6 py-4 border-b border-slate-200 dark:border-[#374151] flex items-center justify-between">
+              <h2 className="text-[15px] font-bold text-slate-800 dark:text-[#F9FAFB]">Returning Items - {returnItemModal.residentName}</h2>
+              <button onClick={() => setReturnItemModal(null)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><XOctagon size={18} /></button>
+            </div>
+            <div className="p-6 bg-slate-50 dark:bg-[#1F2937] max-h-[60vh] overflow-y-auto">
+               <div className="space-y-4">
+                  {returnItemModal.items.map((record: any) => (
+                    <div key={record.id} className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-[#374151] p-4 rounded-xl flex flex-col sm:flex-row justify-between items-start sm:items-center shadow-sm gap-4">
+                       <div>
+                         <h4 className="font-bold text-slate-800 dark:text-[#F9FAFB] text-sm">{record.qty}x {record.item}</h4>
+                         <p className="text-xs text-slate-500 mt-1">Borrowed: {record.borrowDate} | Due: {record.returnDate}</p>
+                       </div>
+                       <button 
+                         onClick={async () => {
+                            await updateDoc(doc(db, "borrow_records", record.id), { status: "Returned", returnedAt: serverTimestamp() });
+                            
+                            if (record.itemId) {
+                               const invItem = items.find(i => i.id === record.itemId);
+                               if (invItem) {
+                                  const newInStock = Number(invItem.inStock) + record.qty;
+                                  await updateDoc(doc(db, "inventory", record.itemId), {
+                                      inStock: newInStock,
+                                      status: newInStock > 5 ? "Available" : newInStock > 0 ? "Low Stock" : "Out of Stock"
+                                  });
+                               }
+                            }
+
+                            await addDoc(collection(db, "activities"), {
+                                title: "Item Returned",
+                                description: `${record.residentName} returned ${record.qty}x ${record.item}.`,
+                                type: "inventory",
+                                createdAt: serverTimestamp()
+                            });
+                            setSuccessDialogMessage(`${record.qty}x ${record.item} successfully returned.`);
+                            setReturnItemModal((prev: any) => ({ ...prev, items: prev.items.filter((i: any) => i.id !== record.id) }));
+                         }}
+                         className="bg-[#10B981] hover:bg-[#059669] text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-colors whitespace-nowrap w-full sm:w-auto text-center"
+                       >
+                         Mark Returned
+                       </button>
+                    </div>
+                  ))}
+                  {returnItemModal.items.length === 0 && (
+                     <p className="text-sm font-bold text-slate-500 text-center py-4">All items have been returned.</p>
+                  )}
+               </div>
+            </div>
           </div>
         </div>
       )}

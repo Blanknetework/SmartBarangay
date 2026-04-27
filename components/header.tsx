@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Search, Settings, User, Moon, Sun, Menu, LogOut, Edit } from "lucide-react";
+import { Bell, Search, Settings, User, Moon, Sun, Menu, LogOut, Edit, Trash2 } from "lucide-react";
 import Image from "next/image";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
@@ -120,9 +120,7 @@ export function Header() {
             {theme === "dark" ? <Sun size={20} /> : <Moon size={20} />}
           </button>
         )}
-        <Link href="/dashboard/recycle-bin" className="p-2.5 rounded-full hover:bg-slate-100 dark:hover:bg-[#1F2937] text-slate-500 dark:text-[#9CA3AF] transition-colors">
-          <Settings size={20} />
-        </Link>
+
         <div className="relative">
           <button 
             onClick={() => setShowNotifications(!showNotifications)} 
@@ -174,6 +172,10 @@ export function Header() {
                    <Edit size={16} className="text-slate-500" />
                    Edit Profile
                  </button>
+                 <Link href="/dashboard/recycle-bin" onClick={() => setShowProfileMenu(false)} className="w-full text-left px-3 py-2 text-[13px] font-bold text-slate-700 dark:text-[#F9FAFB] hover:bg-slate-100 dark:hover:bg-[#374151] rounded-xl transition-colors flex items-center gap-2">
+                   <Trash2 size={16} className="text-slate-500" />
+                   Recycle Bin
+                 </Link>
                  <div className="h-px bg-slate-200 dark:bg-[#374151] my-1 mx-2" />
                  <button 
                    onClick={handleLogout}

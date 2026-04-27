@@ -40,8 +40,21 @@ export default function RecycleBinPage() {
   const restoreItem = async (item: BinItem) => {
     setWorkingId(item.id);
     try {
-      const payload = { ...(item.data || {}), restoredAt: serverTimestamp() };
-      await addDoc(collection(db, item.sourceCollection), payload);
+      const sourceCol = item.sourceCollection || (item as any).originalCollection;
+      if (!sourceCol) {
+        alert("Cannot restore: unknown source collection.");
+        return;
+      }
+      
+      const itemData = item.data ? item.data : Object.keys(item).reduce((acc: any, key) => {
+        if (!['id', 'sourceCollection', 'originalCollection', 'deletedAt', 'itemType', 'title'].includes(key)) {
+          acc[key] = (item as any)[key];
+        }
+        return acc;
+      }, {});
+      
+      const payload = { ...itemData, restoredAt: serverTimestamp() };
+      await addDoc(collection(db, sourceCol), payload);
       await deleteDoc(doc(db, "recycle_bin", item.id));
     } catch (error) {
       console.error("Restore failed:", error);
@@ -100,8 +113,8 @@ export default function RecycleBinPage() {
               {rows.map((item) => (
                 <tr key={item.id} className="border-b border-slate-100 dark:border-[#374151]/50 last:border-0">
                   <td className="px-5 py-4 text-sm font-semibold text-slate-700 dark:text-[#E5E7EB]">{item.itemType || "Record"}</td>
-                  <td className="px-5 py-4 text-sm font-bold text-slate-800 dark:text-[#F9FAFB]">{item.title || "Untitled"}</td>
-                  <td className="px-5 py-4 text-sm font-semibold text-slate-500 dark:text-[#9CA3AF]">{item.sourceCollection}</td>
+                  <td className="px-5 py-4 text-sm font-bold text-slate-800 dark:text-[#F9FAFB]">{item.title || item.data?.title || (item as any).name || ((item as any).firstName ? `${(item as any).firstName} ${(item as any).lastName}` : "Untitled")}</td>
+                  <td className="px-5 py-4 text-sm font-semibold text-slate-500 dark:text-[#9CA3AF]">{item.sourceCollection || (item as any).originalCollection || "Unknown"}</td>
                   <td className="px-5 py-4 text-sm font-semibold text-slate-500 dark:text-[#9CA3AF]">
                     {item.deletedAt?.toDate ? item.deletedAt.toDate().toLocaleString() : "—"}
                   </td>

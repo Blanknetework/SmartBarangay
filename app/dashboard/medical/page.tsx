@@ -53,6 +53,15 @@ export default function MedicalPage() {
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [isEditingLabs, setIsEditingLabs] = useState(false);
 
+  const [addNoteModalOpen, setAddNoteModalOpen] = useState(false);
+  const [newNoteText, setNewNoteText] = useState("");
+
+  const [addMedModalOpen, setAddMedModalOpen] = useState(false);
+  const [newMedText, setNewMedText] = useState("");
+
+  const [addLabModalOpen, setAddLabModalOpen] = useState(false);
+  const [newLabText, setNewLabText] = useState("");
+
   const [addPatientForm, setAddPatientForm] = useState({
     residentId: "RC-0000",
     firstName: "",
@@ -66,8 +75,8 @@ export default function MedicalPage() {
     birthYear: "2000",
     age: "",
     emergencyContact: "",
-    gender: "Male",
-    civilStatus: "Single",
+    gender: "",
+    civilStatus: "",
     address: "",
     city: "",
     province: "",
@@ -203,6 +212,12 @@ export default function MedicalPage() {
         image: doctorPicPreview || "men/32.jpg", // fallback
         createdAt: serverTimestamp()
       });
+      await addDoc(collection(db, "activities"), {
+          title: "New Doctor Added",
+          description: `Dr. ${addDoctorForm.firstName} ${addDoctorForm.lastName} has been added to the medical roster.`,
+          type: "medical",
+          createdAt: serverTimestamp()
+      });
       setAddDoctorForm({ firstName: "", lastName: "", middleName: "", contact: "", email: "", gender: "Male", language: "", hospital: "", experience: "" });
       setAddDoctorSpecialties([""]);
       setAddDoctorAvailabilities([{ day: "", startTime: "", endTime: "" }]);
@@ -219,6 +234,12 @@ export default function MedicalPage() {
         doctorName: selectedDoctor.name,
         doctorImage: selectedDoctor.image,
         createdAt: serverTimestamp()
+      });
+      await addDoc(collection(db, "activities"), {
+          title: "Appointment Scheduled",
+          description: `A new appointment has been scheduled with ${selectedDoctor.name}.`,
+          type: "medical",
+          createdAt: serverTimestamp()
       });
       setIsMakeAppointmentModalOpen(false);
       setShowAppointmentSuccess(true);
@@ -239,10 +260,25 @@ export default function MedicalPage() {
           pulse: addPatientForm.pulse,
           weight: addPatientForm.weight,
           height: addPatientForm.height,
-          notesList: addPatientForm.notes ? [{ date: new Date().toLocaleDateString('en-US', {month:'2-digit', day:'2-digit', year:'numeric'}), text: addPatientForm.notes }] : [],
-          medicationsList: addPatientForm.medications ? [addPatientForm.medications] : [],
-          labsList: [],
+          notesList: addPatientForm.notes ? [{ date: new Date().toLocaleDateString('en-US', {month:'2-digit', day:'2-digit', year:'numeric'}), text: addPatientForm.notes }] : (found.notesList || []),
+          medicationsList: addPatientForm.medications ? [addPatientForm.medications] : (found.medicationsList || []),
+          labsList: found.labsList || [],
           emergencyContact: addPatientForm.emergencyContact,
+          contact: addPatientForm.contact,
+          email: addPatientForm.email,
+          address: addPatientForm.address,
+          city: addPatientForm.city,
+          province: addPatientForm.province,
+          gender: addPatientForm.gender,
+          civilStatus: addPatientForm.civilStatus,
+          birthMonth: addPatientForm.birthMonth,
+          birthDay: addPatientForm.birthDay,
+          birthYear: addPatientForm.birthYear,
+          age: addPatientForm.age,
+          religion: addPatientForm.religion,
+          firstName: addPatientForm.firstName,
+          lastName: addPatientForm.lastName,
+          middleName: addPatientForm.middleName,
           hasMedicalRecord: true,
           updatedAt: serverTimestamp()
         });
@@ -760,14 +796,9 @@ export default function MedicalPage() {
                         {isEditingNotes && (
                            <div className="px-3 py-2.5 mt-1">
                               <button 
-                                onClick={async () => {
-                                  const newNote = prompt("Enter new note:");
-                                  if (newNote) {
-                                    const noteObj = { date: new Date().toLocaleDateString('en-US', {month:'2-digit', day:'2-digit', year:'numeric'}), text: newNote };
-                                    const updated = [noteObj, ...(selectedPatient.notesList || [])];
-                                    await updateDoc(doc(db, "residents", selectedPatient.id), { notesList: updated, hasMedicalRecord: true });
-                                    setSelectedPatient({ ...selectedPatient, notesList: updated, hasMedicalRecord: true });
-                                  }
+                                onClick={() => {
+                                  setAddNoteModalOpen(true);
+                                  setNewNoteText("");
                                 }}
                                 className="flex items-center w-max bg-slate-100 dark:bg-[#374151] text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-[#4B5563] px-3 py-1.5 rounded-lg text-sm hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
                               >
@@ -818,13 +849,9 @@ export default function MedicalPage() {
                         {isEditingMedications && (
                            <div className="px-3 py-2.5 mt-1">
                               <button 
-                                onClick={async () => {
-                                  const newMed = prompt("Enter medication name:");
-                                  if (newMed) {
-                                    const updated = [...(selectedPatient.medicationsList || []), newMed];
-                                    await updateDoc(doc(db, "residents", selectedPatient.id), { medicationsList: updated, hasMedicalRecord: true });
-                                    setSelectedPatient({ ...selectedPatient, medicationsList: updated, hasMedicalRecord: true });
-                                  }
+                                onClick={() => {
+                                  setAddMedModalOpen(true);
+                                  setNewMedText("");
                                 }}
                                 className="flex items-center w-max bg-slate-100 dark:bg-[#374151] text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-[#4B5563] px-3 py-1.5 rounded-lg text-sm hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
                               >
@@ -897,14 +924,9 @@ export default function MedicalPage() {
                         {isEditingLabs && (
                            <div className="px-4 py-2 mt-1">
                               <button 
-                                onClick={async () => {
-                                  const newLab = prompt("Enter lab result name:");
-                                  if (newLab) {
-                                    const labObj = { name: newLab, date: new Date().toLocaleDateString('en-US', {month:'2-digit', day:'2-digit', year:'numeric'}) };
-                                    const updated = [labObj, ...(selectedPatient.labsList || [])];
-                                    await updateDoc(doc(db, "residents", selectedPatient.id), { labsList: updated, hasMedicalRecord: true });
-                                    setSelectedPatient({ ...selectedPatient, labsList: updated, hasMedicalRecord: true });
-                                  }
+                                onClick={() => {
+                                  setAddLabModalOpen(true);
+                                  setNewLabText("");
                                 }}
                                 className="flex items-center w-max bg-slate-100 dark:bg-[#374151] text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-[#4B5563] px-3 py-1.5 rounded-lg text-sm hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
                               >
@@ -1077,18 +1099,15 @@ export default function MedicalPage() {
                      <h3 className="text-[13px] font-semibold text-slate-700 dark:text-[#F9FAFB]">Availability</h3>
                   </div>
                   <div className="p-4 flex flex-col space-y-3">
-                     <div className="flex justify-between text-[11px] font-semibold">
-                        <span className="text-slate-600 dark:text-[#9CA3AF]">Monday</span>
-                        <span className="text-slate-700 dark:text-slate-300">9:00 am - 1:00 pm</span>
-                     </div>
-                     <div className="flex justify-between text-[11px] font-semibold">
-                        <span className="text-slate-600 dark:text-[#9CA3AF]">Tuesday</span>
-                        <span className="text-slate-700 dark:text-slate-300">9:00 am - 11:00 am</span>
-                     </div>
-                     <div className="flex justify-between text-[11px] font-semibold">
-                        <span className="text-slate-600 dark:text-[#9CA3AF]">Thursday</span>
-                        <span className="text-slate-700 dark:text-slate-300">10:00 am - 1:00 pm</span>
-                     </div>
+                     {(selectedDoctor?.availabilities || []).map((avail: any, idx: number) => (
+                       <div key={idx} className="flex justify-between text-[11px] font-semibold">
+                          <span className="text-slate-600 dark:text-[#9CA3AF]">{avail.day}</span>
+                          <span className="text-slate-700 dark:text-slate-300">{avail.startTime} - {avail.endTime}</span>
+                       </div>
+                     ))}
+                     {(!selectedDoctor?.availabilities || selectedDoctor.availabilities.length === 0) && (
+                       <div className="text-xs text-slate-400">No availability listed.</div>
+                     )}
                   </div>
                 </div>
                 
@@ -1097,15 +1116,16 @@ export default function MedicalPage() {
                   <div className="px-4 py-3 border-b border-slate-100 dark:border-[#374151]">
                      <h3 className="text-[13px] font-semibold text-slate-700 dark:text-[#F9FAFB]">Appointed</h3>
                   </div>
-                  <div className="p-4 flex flex-col space-y-3">
-                     <div className="flex justify-between text-[11px] font-semibold">
-                        <span className="text-slate-600 dark:text-[#9CA3AF]">April 20, 2026</span>
-                        <span className="text-slate-700 dark:text-slate-300">9:30 am - 10:30 am</span>
-                     </div>
-                     <div className="flex justify-between text-[11px] font-semibold">
-                        <span className="text-slate-600 dark:text-[#9CA3AF]">April 30, 2026</span>
-                        <span className="text-slate-700 dark:text-slate-300">11:00 am - 12:00 pm</span>
-                     </div>
+                  <div className="p-4 flex flex-col space-y-3 max-h-[150px] overflow-y-auto">
+                     {appointments.filter(app => app.doctorId === selectedDoctor?.id || app.doctorName === selectedDoctor?.name || app.doctor === selectedDoctor?.name).map((app: any, idx: number) => (
+                       <div key={idx} className="flex justify-between text-[11px] font-semibold">
+                          <span className="text-slate-600 dark:text-[#9CA3AF]">{app.date}</span>
+                          <span className="text-slate-700 dark:text-slate-300">{app.time}</span>
+                       </div>
+                     ))}
+                     {appointments.filter(app => app.doctorId === selectedDoctor?.id || app.doctorName === selectedDoctor?.name || app.doctor === selectedDoctor?.name).length === 0 && (
+                       <div className="text-xs text-slate-400">No appointments scheduled.</div>
+                     )}
                   </div>
                 </div>
               </div>
@@ -1384,9 +1404,16 @@ export default function MedicalPage() {
                       } else {
                         const snap = await getDoc(docRef);
                         if (snap.exists()) {
+                          let itemTitle = "Record";
+                          if (deleteModal.collection === "doctors") itemTitle = snap.data().name || `${snap.data().firstName} ${snap.data().lastName}`;
+                          else if (deleteModal.collection === "appointments") itemTitle = `Appt with ${snap.data().doctorName || 'Doctor'} on ${snap.data().date || 'Unknown'}`;
+                          
                           await addDoc(collection(db, "recycle_bin"), {
-                            ...snap.data(),
-                            originalCollection: deleteModal.collection,
+                            sourceCollection: deleteModal.collection,
+                            sourceId: deleteModal.id,
+                            itemType: deleteModal.type,
+                            title: itemTitle,
+                            data: snap.data(),
                             deletedAt: serverTimestamp()
                           });
                         }
@@ -1523,28 +1550,29 @@ export default function MedicalPage() {
                 <div className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-[#374151] rounded-xl p-5 shadow-sm">
                    <h3 className="text-xs font-black text-slate-700 dark:text-[#F9FAFB] uppercase tracking-wider mb-4 border-b border-slate-100 dark:border-[#374151] pb-2">Availability</h3>
                    <div className="space-y-3">
-                     <div className="flex justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
-                       <span>Monday</span><span>9:00 am - 1:00 pm</span>
-                     </div>
-                     <div className="flex justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
-                       <span>Tuesday</span><span>9:00 am - 11:00 am</span>
-                     </div>
-                     <div className="flex justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
-                       <span>Thursday</span><span>10:00 am - 1:00 pm</span>
-                     </div>
+                     {((doctors.find(d => d.id === selectedAppointment?.doctorId) || selectedDoctor)?.availabilities || []).map((avail: any, idx: number) => (
+                       <div key={idx} className="flex justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
+                         <span>{avail.day}</span><span>{avail.startTime} - {avail.endTime}</span>
+                       </div>
+                     ))}
+                     {(!((doctors.find(d => d.id === selectedAppointment?.doctorId) || selectedDoctor)?.availabilities) || ((doctors.find(d => d.id === selectedAppointment?.doctorId) || selectedDoctor)?.availabilities.length === 0)) && (
+                       <div className="text-xs text-slate-400">No availability listed.</div>
+                     )}
                    </div>
                 </div>
 
                 {/* Appointed Col */}
                 <div className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-[#374151] rounded-xl p-5 shadow-sm">
                    <h3 className="text-xs font-black text-slate-700 dark:text-[#F9FAFB] uppercase tracking-wider mb-4 border-b border-slate-100 dark:border-[#374151] pb-2">Appointed</h3>
-                   <div className="space-y-3">
-                     <div className="flex justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
-                       <span>April 20, 2026</span><span>9:30 am - 10:30 am</span>
-                     </div>
-                     <div className="flex justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
-                       <span>April 30, 2026</span><span>11:00 am - 12:00 pm</span>
-                     </div>
+                   <div className="space-y-3 max-h-[150px] overflow-y-auto">
+                     {appointments.filter(app => app.doctorId === (selectedAppointment?.doctorId || selectedDoctor?.id)).map((app: any, idx: number) => (
+                       <div key={idx} className="flex justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
+                         <span>{app.date}</span><span>{app.time}</span>
+                       </div>
+                     ))}
+                     {appointments.filter(app => app.doctorId === (selectedAppointment?.doctorId || selectedDoctor?.id)).length === 0 && (
+                       <div className="text-xs text-slate-400">No appointments scheduled.</div>
+                     )}
                    </div>
                 </div>
               </div>
@@ -1552,24 +1580,33 @@ export default function MedicalPage() {
               <div className="grid grid-cols-2 gap-4 mb-6">
                 <div>
                   <label className="block text-xs font-black text-[#38bdf8] mb-1.5 ml-1">Date</label>
-                  <input type="text" defaultValue="Apr 20, 2026" className="w-full bg-white dark:bg-[#111827] border border-slate-300 dark:border-[#374151] rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#3B82F6]" />
+                  <input type="text" value={selectedAppointment?.date || ""} onChange={e => setSelectedAppointment({...selectedAppointment, date: e.target.value})} className="w-full bg-white dark:bg-[#111827] border border-slate-300 dark:border-[#374151] rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#3B82F6]" />
                 </div>
                 <div>
                   <label className="block text-xs font-black text-[#38bdf8] mb-1.5 ml-1">Time</label>
-                  <input type="text" defaultValue="9:30 am - 10:30 am" className="w-full bg-slate-100 dark:bg-[#374151] border border-slate-200 dark:border-[#4B5563] rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-[#F9FAFB] focus:outline-none" />
+                  <input type="text" value={selectedAppointment?.time || ""} onChange={e => setSelectedAppointment({...selectedAppointment, time: e.target.value})} className="w-full bg-slate-100 dark:bg-[#374151] border border-slate-200 dark:border-[#4B5563] rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-[#F9FAFB] focus:outline-none" />
                 </div>
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-[#F9FAFB] mb-2 ml-1">Purpose of Appointment</label>
-                <textarea rows={4} placeholder="[Type here]" className="w-full bg-white dark:bg-[#111827] border border-slate-300 dark:border-[#374151] rounded-xl px-4 py-3 text-sm font-medium text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#3B82F6] resize-none"></textarea>
+                <textarea rows={4} value={selectedAppointment?.purpose || ""} onChange={e => setSelectedAppointment({...selectedAppointment, purpose: e.target.value})} placeholder="[Type here]" className="w-full bg-white dark:bg-[#111827] border border-slate-300 dark:border-[#374151] rounded-xl px-4 py-3 text-sm font-medium text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#3B82F6] resize-none"></textarea>
               </div>
             </div>
             
             <div className="py-5 px-6 flex justify-end bg-white dark:bg-[#111827] border-t border-slate-200 dark:border-[#374151]">
               <div className="flex space-x-4">
                  <button 
-                   onClick={() => { setIsEditAppointmentModalOpen(false); setShowEditAppointmentSuccess(true); }}
+                   onClick={async () => {
+                     if (selectedAppointment && selectedAppointment.id) {
+                       await updateDoc(doc(db, "appointments", selectedAppointment.id), {
+                         date: selectedAppointment.date,
+                         time: selectedAppointment.time,
+                         purpose: selectedAppointment.purpose
+                       });
+                     }
+                     setIsEditAppointmentModalOpen(false); setShowEditAppointmentSuccess(true); 
+                   }}
                    className="bg-[#5FB59C] hover:bg-[#4ea088] text-white px-8 py-2.5 rounded-xl text-sm font-bold shadow-md shadow-[#5FB59C]/20 transition-colors"
                  >
                    Confirm
@@ -1748,6 +1785,118 @@ export default function MedicalPage() {
             >
               OK
             </button>
+          </div>
+        </div>
+      )}
+
+    {/* Add Note Modal */}
+      {addNoteModalOpen && (
+        <div className="fixed inset-0 z-[140] flex items-center justify-center p-4 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#111827] w-full max-w-[400px] rounded-[24px] shadow-2xl border border-slate-200 dark:border-[#374151] overflow-hidden flex flex-col scale-in-95 duration-200">
+            <div className="px-6 py-4 border-b border-slate-200 dark:border-[#374151] flex items-center justify-between">
+              <h2 className="text-[15px] font-bold text-slate-800 dark:text-[#F9FAFB]">Add Note</h2>
+              <button onClick={() => setAddNoteModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><X size={18} /></button>
+            </div>
+            <div className="p-6 bg-slate-50 dark:bg-[#1F2937]">
+              <textarea 
+                value={newNoteText}
+                onChange={e => setNewNoteText(e.target.value)}
+                placeholder="Enter new note..."
+                className="w-full h-32 bg-white dark:bg-[#111827] border border-slate-300 dark:border-[#374151] rounded-xl p-3 text-sm text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#3B82F6] resize-none"
+              ></textarea>
+            </div>
+            <div className="py-4 px-6 flex justify-end space-x-3 bg-white dark:bg-[#111827] border-t border-slate-200 dark:border-[#374151]">
+              <button onClick={() => setAddNoteModalOpen(false)} className="px-5 py-2 rounded-xl text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 dark:bg-[#374151] dark:text-[#F9FAFB] dark:hover:bg-[#4B5563]">Cancel</button>
+              <button 
+                onClick={async () => {
+                  if (newNoteText.trim()) {
+                    const noteObj = { date: new Date().toLocaleDateString('en-US', {month:'2-digit', day:'2-digit', year:'numeric'}), text: newNoteText.trim() };
+                    const updated = [noteObj, ...(selectedPatient.notesList || [])];
+                    await updateDoc(doc(db, "residents", selectedPatient.id), { notesList: updated, hasMedicalRecord: true });
+                    setSelectedPatient({ ...selectedPatient, notesList: updated, hasMedicalRecord: true });
+                  }
+                  setAddNoteModalOpen(false);
+                }}
+                className="px-5 py-2 rounded-xl text-sm font-bold text-white bg-[#5FB59C] hover:bg-[#4ea088] shadow-md shadow-[#5FB59C]/20"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Medication Modal */}
+      {addMedModalOpen && (
+        <div className="fixed inset-0 z-[140] flex items-center justify-center p-4 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#111827] w-full max-w-[400px] rounded-[24px] shadow-2xl border border-slate-200 dark:border-[#374151] overflow-hidden flex flex-col scale-in-95 duration-200">
+            <div className="px-6 py-4 border-b border-slate-200 dark:border-[#374151] flex items-center justify-between">
+              <h2 className="text-[15px] font-bold text-slate-800 dark:text-[#F9FAFB]">Add Medication</h2>
+              <button onClick={() => setAddMedModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><X size={18} /></button>
+            </div>
+            <div className="p-6 bg-slate-50 dark:bg-[#1F2937]">
+              <input 
+                type="text"
+                value={newMedText}
+                onChange={e => setNewMedText(e.target.value)}
+                placeholder="Enter medication name..."
+                className="w-full bg-white dark:bg-[#111827] border border-slate-300 dark:border-[#374151] rounded-xl px-4 py-3 text-sm font-medium text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#3B82F6]"
+              />
+            </div>
+            <div className="py-4 px-6 flex justify-end space-x-3 bg-white dark:bg-[#111827] border-t border-slate-200 dark:border-[#374151]">
+              <button onClick={() => setAddMedModalOpen(false)} className="px-5 py-2 rounded-xl text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 dark:bg-[#374151] dark:text-[#F9FAFB] dark:hover:bg-[#4B5563]">Cancel</button>
+              <button 
+                onClick={async () => {
+                  if (newMedText.trim()) {
+                    const updated = [...(selectedPatient.medicationsList || []), newMedText.trim()];
+                    await updateDoc(doc(db, "residents", selectedPatient.id), { medicationsList: updated, hasMedicalRecord: true });
+                    setSelectedPatient({ ...selectedPatient, medicationsList: updated, hasMedicalRecord: true });
+                  }
+                  setAddMedModalOpen(false);
+                }}
+                className="px-5 py-2 rounded-xl text-sm font-bold text-white bg-[#5FB59C] hover:bg-[#4ea088] shadow-md shadow-[#5FB59C]/20"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Lab Result Modal */}
+      {addLabModalOpen && (
+        <div className="fixed inset-0 z-[140] flex items-center justify-center p-4 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#111827] w-full max-w-[400px] rounded-[24px] shadow-2xl border border-slate-200 dark:border-[#374151] overflow-hidden flex flex-col scale-in-95 duration-200">
+            <div className="px-6 py-4 border-b border-slate-200 dark:border-[#374151] flex items-center justify-between">
+              <h2 className="text-[15px] font-bold text-slate-800 dark:text-[#F9FAFB]">Add Lab Result</h2>
+              <button onClick={() => setAddLabModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><X size={18} /></button>
+            </div>
+            <div className="p-6 bg-slate-50 dark:bg-[#1F2937]">
+              <input 
+                type="text"
+                value={newLabText}
+                onChange={e => setNewLabText(e.target.value)}
+                placeholder="Enter lab result name..."
+                className="w-full bg-white dark:bg-[#111827] border border-slate-300 dark:border-[#374151] rounded-xl px-4 py-3 text-sm font-medium text-slate-800 dark:text-[#F9FAFB] focus:outline-none focus:border-[#3B82F6]"
+              />
+            </div>
+            <div className="py-4 px-6 flex justify-end space-x-3 bg-white dark:bg-[#111827] border-t border-slate-200 dark:border-[#374151]">
+              <button onClick={() => setAddLabModalOpen(false)} className="px-5 py-2 rounded-xl text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 dark:bg-[#374151] dark:text-[#F9FAFB] dark:hover:bg-[#4B5563]">Cancel</button>
+              <button 
+                onClick={async () => {
+                  if (newLabText.trim()) {
+                    const labObj = { name: newLabText.trim(), date: new Date().toLocaleDateString('en-US', {month:'2-digit', day:'2-digit', year:'numeric'}) };
+                    const updated = [labObj, ...(selectedPatient.labsList || [])];
+                    await updateDoc(doc(db, "residents", selectedPatient.id), { labsList: updated, hasMedicalRecord: true });
+                    setSelectedPatient({ ...selectedPatient, labsList: updated, hasMedicalRecord: true });
+                  }
+                  setAddLabModalOpen(false);
+                }}
+                className="px-5 py-2 rounded-xl text-sm font-bold text-white bg-[#5FB59C] hover:bg-[#4ea088] shadow-md shadow-[#5FB59C]/20"
+              >
+                Save
+              </button>
+            </div>
           </div>
         </div>
       )}

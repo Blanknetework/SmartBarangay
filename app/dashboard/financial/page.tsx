@@ -78,6 +78,12 @@ export default function FinancialPage() {
 
     try {
       await addDoc(collection(db, "revenue"), data);
+      await addDoc(collection(db, "activities"), {
+          title: "Payment Recorded",
+          description: `A new payment of ₱${data.amount} for ${data.category} was recorded.`,
+          type: "finance",
+          createdAt: serverTimestamp()
+      });
       setIsSubmitting(false);
       setIsModalOpen(false);
       setShowSuccessDialog(true);
@@ -107,6 +113,14 @@ export default function FinancialPage() {
      return d.toDateString() === new Date().toDateString();
   }).reduce((sum, p) => sum + Number(p.amount || 0), 0);
 
+  const clearanceTotal = payments.filter(p => p.category === "Barangay Clearance").reduce((sum, p) => sum + Number(p.amount || 0), 0);
+  const permitsTotal = payments.filter(p => p.category === "Business Permit").reduce((sum, p) => sum + Number(p.amount || 0), 0);
+  const othersTotal = payments.filter(p => p.category !== "Barangay Clearance" && p.category !== "Business Permit").reduce((sum, p) => sum + Number(p.amount || 0), 0);
+  
+  const totalBreakdown = clearanceTotal + permitsTotal + othersTotal || 1;
+  const clearancePct = Math.round((clearanceTotal / totalBreakdown) * 100);
+  const permitsPct = Math.round((permitsTotal / totalBreakdown) * 100);
+  const othersPct = totalBreakdown > 1 ? 100 - clearancePct - permitsPct : 0;
 
   return (
     <div className="w-full space-y-6">
@@ -183,28 +197,28 @@ export default function FinancialPage() {
               <div>
                 <div className="flex justify-between text-xs mb-1">
                   <span className="text-slate-500">Clearance Fees</span>
-                  <span className="font-semibold">65%</span>
+                  <span className="font-semibold">{clearancePct}%</span>
                 </div>
                 <div className="w-full bg-slate-100 rounded-full h-2">
-                  <div className="bg-emerald-500 h-2 rounded-full" style={{ width: '65%' }}></div>
+                  <div className="bg-emerald-500 h-2 rounded-full" style={{ width: `${clearancePct}%` }}></div>
                 </div>
               </div>
               <div>
                 <div className="flex justify-between text-xs mb-1">
                   <span className="text-slate-500">Business Permits</span>
-                  <span className="font-semibold">25%</span>
+                  <span className="font-semibold">{permitsPct}%</span>
                 </div>
                 <div className="w-full bg-slate-100 rounded-full h-2">
-                  <div className="bg-blue-500 h-2 rounded-full" style={{ width: '25%' }}></div>
+                  <div className="bg-blue-500 h-2 rounded-full" style={{ width: `${permitsPct}%` }}></div>
                 </div>
               </div>
               <div>
                 <div className="flex justify-between text-xs mb-1">
                   <span className="text-slate-500">Other Fees</span>
-                  <span className="font-semibold">10%</span>
+                  <span className="font-semibold">{othersPct}%</span>
                 </div>
                 <div className="w-full bg-slate-100 rounded-full h-2">
-                  <div className="bg-amber-400 h-2 rounded-full" style={{ width: '10%' }}></div>
+                  <div className="bg-amber-400 h-2 rounded-full" style={{ width: `${othersPct}%` }}></div>
                 </div>
               </div>
             </div>
@@ -213,9 +227,9 @@ export default function FinancialPage() {
           <div className="flex-1 mt-4">
              <h3 className="font-semibold text-slate-800 dark:text-slate-100 mb-3">Status Legend</h3>
              <ul className="space-y-2 text-sm text-slate-600 dark:text-slate-300">
-               <li className="flex items-center gap-2"><div className="w-2.5 h-2.5 rounded bg-emerald-500"></div> Paid in Full</li>
-               <li className="flex items-center gap-2"><div className="w-2.5 h-2.5 rounded bg-amber-400"></div> Renewed</li>
-               <li className="flex items-center gap-2"><div className="w-2.5 h-2.5 rounded bg-rose-500"></div> Overdue Balance</li>
+               <li className="flex items-center gap-2"><div className="w-2.5 h-2.5 rounded bg-emerald-500"></div> Paid</li>
+               <li className="flex items-center gap-2"><div className="w-2.5 h-2.5 rounded bg-amber-400"></div> Pending</li>
+               <li className="flex items-center gap-2"><div className="w-2.5 h-2.5 rounded bg-rose-500"></div> Overdue</li>
              </ul>
           </div>
         </div>
