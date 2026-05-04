@@ -2,7 +2,6 @@ import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 
 /**
- * Audit Log Utility — SmartBarangay Information Assurance
  * 
  * Records sensitive actions to the `audit_logs` Firestore collection.
  * 

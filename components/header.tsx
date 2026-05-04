@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Search, Settings, User, Moon, Sun, Menu, LogOut, Edit, Trash2 } from "lucide-react";
+import { Bell, Search, Settings, User, Moon, Sun, Menu, LogOut, Edit, Trash2, X, Camera, CheckCircle2, Loader2, ShieldCheck, ShieldAlert } from "lucide-react";
 import Image from "next/image";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
@@ -10,16 +10,17 @@ import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from 
 import { navItems } from "@/components/sidebar";
 import { cn } from "@/lib/utils";
 import { db } from "@/lib/firebase";
-import { collection, onSnapshot, query, orderBy, limit } from "firebase/firestore";
+import { collection, onSnapshot, query, orderBy, limit, doc, getDoc, setDoc } from "firebase/firestore";
 import { auth } from "@/lib/firebase";
 import { useAuth } from "./auth-provider";
+import { updateProfile } from "firebase/auth";
 
 export function Header() {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
-  const { setRole } = useAuth();
+  const { role, setRole } = useAuth();
 
   const handleLogout = () => {
     auth.signOut().then(() => {
@@ -36,17 +37,116 @@ export function Header() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
- 
+
+  // Edit Profile state
+  const [showEditProfile, setShowEditProfile] = useState(false);
+  const [profileForm, setProfileForm] = useState({
+    displayName: "",
+    email: "",
+    phone: "",
+    address: "",
+    bio: "",
+  });
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileToast, setProfileToast] = useState("");
+
+  const [vpnStatus, setVpnStatus] = useState<boolean | null>(null);
+  const [vpnIp, setVpnIp] = useState<string>("");
 
   useEffect(() => {
     setMounted(true);
     const unsub = onSnapshot(query(collection(db, "activities"), orderBy("createdAt", "desc"), limit(5)), (snap) => {
        setNotifications(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
+
+    // Fetch VPN status for demo purposes
+    fetch("/api/vpn-status")
+      .then(res => res.json())
+      .then(data => {
+        setVpnStatus(data.isTailscaleVpn);
+        setVpnIp(data.ipAddress);
+      })
+      .catch(() => setVpnStatus(false));
+
     return () => unsub();
   }, []);
 
+  // Load profile data when edit modal opens
+  const openEditProfile = async () => {
+    setShowProfileMenu(false);
+    const user = auth.currentUser;
+    if (user) {
+      // Try to load extra profile data from Firestore
+      try {
+        const profileDoc = await getDoc(doc(db, "profiles", user.uid));
+        const data = profileDoc.exists() ? profileDoc.data() : {};
+        setProfileForm({
+          displayName: user.displayName || data?.displayName || "",
+          email: user.email || "",
+          phone: data?.phone || "",
+          address: data?.address || "",
+          bio: data?.bio || "",
+        });
+      } catch {
+        setProfileForm({
+          displayName: user.displayName || "",
+          email: user.email || "",
+          phone: "",
+          address: "",
+          bio: "",
+        });
+      }
+    } else {
+      // Mock user (no Firebase auth user)
+      const savedProfile = localStorage.getItem("smartbarangay_profile");
+      const data = savedProfile ? JSON.parse(savedProfile) : {};
+      setProfileForm({
+        displayName: data.displayName || role || "Admin",
+        email: data.email || "",
+        phone: data.phone || "",
+        address: data.address || "",
+        bio: data.bio || "",
+      });
+    }
+    setShowEditProfile(true);
+  };
+
+  const handleSaveProfile = async () => {
+    setProfileSaving(true);
+    try {
+      const user = auth.currentUser;
+      if (user) {
+        // Update Firebase Auth display name
+        await updateProfile(user, { displayName: profileForm.displayName });
+        // Save extra fields to Firestore profiles collection
+        await setDoc(doc(db, "profiles", user.uid), {
+          displayName: profileForm.displayName,
+          phone: profileForm.phone,
+          address: profileForm.address,
+          bio: profileForm.bio,
+          updatedAt: new Date(),
+        }, { merge: true });
+      } else {
+        // Mock user — save to localStorage
+        localStorage.setItem("smartbarangay_profile", JSON.stringify(profileForm));
+      }
+      setProfileToast("Profile updated successfully!");
+      setTimeout(() => setProfileToast(""), 3000);
+      setShowEditProfile(false);
+    } catch (err) {
+      console.error("Profile save error:", err);
+      setProfileToast("Failed to update profile.");
+      setTimeout(() => setProfileToast(""), 3000);
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  const inputCls = "w-full bg-white dark:bg-[#0F172A] border border-slate-200 dark:border-[#374151] rounded-lg px-3 py-2.5 text-sm text-slate-800 dark:text-[#F9FAFB] outline-none focus:ring-2 focus:ring-[#3B82F6]/40 transition-all placeholder:text-slate-400";
+  const labelCls = "text-xs font-bold text-slate-500 dark:text-[#9CA3AF] uppercase tracking-wider mb-1.5 block";
+
   return (
+    <>
     <header className="h-20 w-full bg-[#fcfdff] dark:bg-[#0F172A] flex items-center justify-between px-6 sticky top-0 z-50 shadow-sm border-b border-slate-200 dark:border-[#374151] transition-colors">
       {/* Left section: Logo and dark text */}
       <div className="flex items-center space-x-3 w-64 lg:w-[320px]">
@@ -112,10 +212,20 @@ export function Header() {
 
       {/* Right section: Icons */}
       <div className="flex items-center space-x-2 md:space-x-4 pl-4">
+        {mounted && vpnStatus !== null && (
+          <div className="hidden md:flex items-center bg-slate-50 dark:bg-[#1F2937] px-3 py-1.5 rounded-full border border-slate-200 dark:border-[#374151]" title={vpnStatus ? `Connected via VPN (${vpnIp})` : `Unsecured Connection (${vpnIp})`}>
+            {vpnStatus ? (
+              <><ShieldCheck size={16} className="text-emerald-500 mr-2" /><span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">VPN Active</span></>
+            ) : (
+              <><ShieldAlert size={16} className="text-rose-500 mr-2" /><span className="text-[11px] font-bold text-rose-600 dark:text-rose-400">Unsecured</span></>
+            )}
+          </div>
+        )}
+
         {mounted && (
           <button 
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            className="p-2.5 rounded-full hover:bg-slate-100 dark:hover:bg-[#1F2937] text-slate-500 dark:text-[#9CA3AF] transition-colors"
+            className="p-2.5 rounded-full hover:bg-slate-100 dark:hover:bg-[#1F2937] text-slate-500 dark:text-[#9CA3AF] transition-colors ml-2"
           >
             {theme === "dark" ? <Sun size={20} /> : <Moon size={20} />}
           </button>
@@ -168,7 +278,7 @@ export function Header() {
           {showProfileMenu && (
             <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-[#1F2937] rounded-2xl shadow-xl border border-slate-200 dark:border-[#374151] overflow-hidden z-[60] animate-in fade-in slide-in-from-top-2 duration-200">
                <div className="p-2 space-y-1">
-                 <button className="w-full text-left px-3 py-2 text-[13px] font-bold text-slate-700 dark:text-[#F9FAFB] hover:bg-slate-100 dark:hover:bg-[#374151] rounded-xl transition-colors flex items-center gap-2">
+                 <button onClick={openEditProfile} className="w-full text-left px-3 py-2 text-[13px] font-bold text-slate-700 dark:text-[#F9FAFB] hover:bg-slate-100 dark:hover:bg-[#374151] rounded-xl transition-colors flex items-center gap-2">
                    <Edit size={16} className="text-slate-500" />
                    Edit Profile
                  </button>
@@ -190,5 +300,77 @@ export function Header() {
         </div>
       </div>
     </header>
+
+    {/* Edit Profile Modal */}
+    {showEditProfile && (
+      <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/30 backdrop-blur-[2px] animate-in fade-in duration-200">
+        <div className="bg-white dark:bg-[#111827] rounded-2xl w-full max-w-[460px] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 border border-slate-200 dark:border-[#374151] mx-4">
+          {/* Modal Header */}
+          <div className="flex justify-between items-center px-6 py-4 border-b border-slate-200 dark:border-[#374151] bg-gradient-to-r from-[#3B82F6] to-[#8B5CF6]">
+            <h2 className="text-lg font-bold text-white">Edit Profile</h2>
+            <button onClick={() => setShowEditProfile(false)} className="text-white/70 hover:text-white transition-colors"><X size={20} /></button>
+          </div>
+
+          {/* Avatar Section */}
+          <div className="flex flex-col items-center pt-6 pb-2">
+            <div className="relative">
+              <div className="w-[90px] h-[90px] rounded-full border-[3px] border-[#3B82F6] overflow-hidden shadow-lg shadow-[#3B82F6]/20">
+                <Image src="/pfp.png" alt="Profile" width={90} height={90} className="object-cover w-full h-full" />
+              </div>
+              <div className="absolute -bottom-1 -right-1 w-8 h-8 bg-[#3B82F6] rounded-full flex items-center justify-center border-[2px] border-white dark:border-[#111827] cursor-pointer hover:bg-[#2563EB] transition-colors">
+                <Camera size={14} className="text-white" />
+              </div>
+            </div>
+            <p className="text-xs font-bold text-slate-400 dark:text-[#9CA3AF] mt-3 uppercase tracking-wider">
+              {role || "User"}
+            </p>
+          </div>
+
+          {/* Form */}
+          <div className="px-6 py-4 space-y-4">
+            <div>
+              <label className={labelCls}>Display Name</label>
+              <input className={inputCls} placeholder="Your Name" value={profileForm.displayName} onChange={e => setProfileForm({ ...profileForm, displayName: e.target.value })} />
+            </div>
+            <div>
+              <label className={labelCls}>Email</label>
+              <input className={`${inputCls} opacity-60 cursor-not-allowed`} value={profileForm.email} readOnly />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelCls}>Phone</label>
+                <input className={inputCls} placeholder="09XXXXXXXXX" value={profileForm.phone} onChange={e => setProfileForm({ ...profileForm, phone: e.target.value })} />
+              </div>
+              <div>
+                <label className={labelCls}>Address</label>
+                <input className={inputCls} placeholder="City, Province" value={profileForm.address} onChange={e => setProfileForm({ ...profileForm, address: e.target.value })} />
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>Bio</label>
+              <textarea className={`${inputCls} resize-none h-[70px]`} placeholder="Short bio..." value={profileForm.bio} onChange={e => setProfileForm({ ...profileForm, bio: e.target.value })} />
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-200 dark:border-[#374151] bg-slate-50 dark:bg-[#0F172A]">
+            <button onClick={() => setShowEditProfile(false)} className="px-4 py-2 text-sm font-bold text-slate-600 dark:text-slate-300 bg-white dark:bg-[#1F2937] border border-slate-200 dark:border-[#374151] rounded-lg hover:bg-slate-50 dark:hover:bg-[#374151] transition-colors">Cancel</button>
+            <button onClick={handleSaveProfile} disabled={profileSaving} className="px-5 py-2 text-sm font-bold text-white bg-[#3B82F6] hover:bg-[#2563EB] rounded-lg shadow-md shadow-[#3B82F6]/20 transition-colors disabled:opacity-50 flex items-center gap-2">
+              {profileSaving && <Loader2 size={14} className="animate-spin" />}
+              Save Changes
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Profile Toast */}
+    {profileToast && (
+      <div className="fixed top-6 right-6 bg-white dark:bg-[#1E293B] shadow-xl rounded-xl flex items-center p-4 border border-green-100 dark:border-green-900/30 animate-in slide-in-from-top-4 fade-in duration-300 z-[80]">
+        <div className="bg-green-100 dark:bg-green-900/30 rounded-full p-2 mr-3 shrink-0"><CheckCircle2 className="text-green-600 dark:text-green-400" size={20} /></div>
+        <p className="text-sm font-bold text-slate-800 dark:text-[#F9FAFB]">{profileToast}</p>
+      </div>
+    )}
+    </>
   );
 }

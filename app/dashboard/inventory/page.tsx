@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { 
   Package, AlertTriangle, XOctagon, Search, Plus, 
-  SlidersHorizontal, Eye, Trash2, ChevronDown, User, Check, ArrowLeft
+  SlidersHorizontal, Eye, Trash2, ChevronDown, User, Check, ArrowLeft, RotateCcw
 } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { collection, onSnapshot, query, addDoc, serverTimestamp, deleteDoc, doc, orderBy, limit, updateDoc } from "firebase/firestore";
@@ -190,8 +190,8 @@ export default function InventoryPage() {
           <h1 className="text-2xl font-bold text-slate-800 dark:text-[#F9FAFB] tracking-tight">Inventory Management</h1>
         </div>
 
-        {/* 3 Metric Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* 4 Metric Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           <div className="bg-white dark:bg-[#1F2937] border border-slate-200 dark:border-[#374151] rounded-3xl p-6 shadow-sm dark:shadow-none flex flex-col transition-all">
             <div className="flex items-center space-x-4 mb-4">
                <div className="bg-[#D1FAE5] dark:bg-[#065F46]/30 p-4 rounded-2xl border border-[#A7F3D0] dark:border-[#065F46]/50">
@@ -229,6 +229,27 @@ export default function InventoryPage() {
             </div>
             <p className="text-[11px] font-bold text-slate-500 dark:text-[#9CA3AF] mb-1">Total Items Out of Stock</p>
             <p className="text-2xl font-black text-slate-800 dark:text-white">{items.filter(i => i.status === 'Out of Stock' || parseInt(i.inStock) === 0).length}</p>
+          </div>
+
+          <div className="bg-white dark:bg-[#1F2937] border border-slate-200 dark:border-[#374151] rounded-3xl p-6 shadow-sm dark:shadow-none flex flex-col transition-all">
+            <div className="flex items-center space-x-4 mb-4">
+               <div className="bg-[#DBEAFE] dark:bg-[#1E3A8A]/30 p-4 rounded-2xl border border-[#93C5FD] dark:border-[#1E3A8A]/50">
+                  <RotateCcw size={28} className="text-[#2563EB] dark:text-[#93C5FD]" strokeWidth={1.5} />
+               </div>
+               <div>
+                 <h3 className="text-[15px] font-black text-slate-800 dark:text-[#F9FAFB]">Returned</h3>
+               </div>
+            </div>
+            <p className="text-[11px] font-bold text-slate-500 dark:text-[#9CA3AF] mb-1">Items returned today</p>
+            <p className="text-2xl font-black text-slate-800 dark:text-white">{borrowRecords.filter(r => {
+              if (r.status !== 'Returned') return false;
+              const now = new Date();
+              let returnedDate: Date | null = null;
+              if (r.returnedAt?.toDate) returnedDate = r.returnedAt.toDate();
+              else if (r.returnedAt?.seconds) returnedDate = new Date(r.returnedAt.seconds * 1000);
+              if (!returnedDate) return true;
+              return returnedDate.toDateString() === now.toDateString();
+            }).length}</p>
           </div>
         </div>
 
@@ -351,6 +372,61 @@ export default function InventoryPage() {
               </tbody>
             </table>
           </div>
+
+          {/* Recently Returned Items Section */}
+          {(() => {
+            const returnedRecords = borrowRecords.filter(r => r.status === 'Returned');
+            if (returnedRecords.length === 0) return null;
+            return (
+              <div className="mt-6 border-t border-slate-200 dark:border-[#374151] pt-6 px-6">
+                <div className="flex items-center space-x-3 mb-4">
+                  <div className="bg-[#DBEAFE] dark:bg-[#1E3A8A]/30 p-2.5 rounded-xl border border-[#93C5FD] dark:border-[#1E3A8A]/50">
+                    <RotateCcw size={18} className="text-[#2563EB] dark:text-[#93C5FD]" strokeWidth={2} />
+                  </div>
+                  <h3 className="text-[15px] font-bold text-slate-800 dark:text-[#F9FAFB]">Recently Returned Items</h3>
+                  <span className="text-[11px] font-bold bg-[#DBEAFE] dark:bg-[#1E3A8A]/30 text-[#2563EB] dark:text-[#93C5FD] px-3 py-1 rounded-full">{returnedRecords.length} items</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full whitespace-nowrap">
+                    <thead>
+                      <tr className="border-b border-slate-200 dark:border-[#374151]">
+                        <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 dark:text-[#9CA3AF]">Item Name</th>
+                        <th className="px-4 py-3 text-center text-xs font-bold text-slate-500 dark:text-[#9CA3AF]">Qty</th>
+                        <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 dark:text-[#9CA3AF]">Borrower</th>
+                        <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 dark:text-[#9CA3AF]">Borrow Date</th>
+                        <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 dark:text-[#9CA3AF]">Returned At</th>
+                        <th className="px-4 py-3 text-center text-xs font-bold text-slate-500 dark:text-[#9CA3AF]">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {returnedRecords.slice(0, 10).map((record: any) => {
+                        let returnedAtStr = 'N/A';
+                        if (record.returnedAt?.toDate) {
+                          returnedAtStr = record.returnedAt.toDate().toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' });
+                        } else if (record.returnedAt?.seconds) {
+                          returnedAtStr = new Date(record.returnedAt.seconds * 1000).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' });
+                        }
+                        return (
+                          <tr key={record.id} className="group hover:bg-slate-50 dark:hover:bg-[#374151]/30 transition-colors border-b border-slate-100 dark:border-[#374151]/50 last:border-0">
+                            <td className="px-4 py-4 text-sm font-bold text-slate-800 dark:text-[#F9FAFB]">{record.item}</td>
+                            <td className="px-4 py-4 text-sm font-black text-center text-slate-800 dark:text-[#D1D5DB]">{record.qty}</td>
+                            <td className="px-4 py-4 text-sm font-bold text-slate-600 dark:text-[#9CA3AF]">{record.residentName}</td>
+                            <td className="px-4 py-4 text-sm font-bold text-slate-600 dark:text-[#9CA3AF]">{record.borrowDate}</td>
+                            <td className="px-4 py-4 text-sm font-bold text-slate-600 dark:text-[#9CA3AF]">{returnedAtStr}</td>
+                            <td className="px-4 py-4 text-center">
+                              <span className="px-4 py-1.5 rounded-xl text-[11px] font-black bg-[#DBEAFE] text-[#2563EB] dark:bg-[#1E3A8A]/30 dark:text-[#93C5FD]">
+                                ✓ Returned
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })()}
         </div>
         )}
 

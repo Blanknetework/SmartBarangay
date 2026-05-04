@@ -20,7 +20,10 @@ const BLOCKED_MESSAGE =
 
 export function enforceAdminVpnAccess(request: NextRequest) {
   const clientIp = extractClientIp(request);
-  const vpnAllowed = isTailscaleClientIp(clientIp);
+  
+  // Allow localhost for local development and testing
+  const isLocalhost = clientIp === "127.0.0.1" || clientIp === "::1" || clientIp === null;
+  const vpnAllowed = isTailscaleClientIp(clientIp) || isLocalhost;
 
   if (vpnAllowed) return NextResponse.next();
 

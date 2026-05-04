@@ -233,7 +233,7 @@ export default function FinancialPage() {
              </ul>
           </div>
         </div>
-      </div>
+      </div>s
 
       {/* Table Section */}
       <div className="bg-white dark:bg-[#1E293B] rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden">

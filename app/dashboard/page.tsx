@@ -492,16 +492,16 @@ export default function DashboardClient() {
               </div>
             </div>
 
-          <div className="bg-white dark:bg-[#1F2937] rounded-2xl shadow-sm dark:shadow-none border border-slate-100 dark:border-[#374151] flex-1 p-6 flex flex-col overflow-hidden transition-colors">
-            <div className="flex items-center justify-between mb-6">
+          <div className="bg-white dark:bg-[#1F2937] rounded-2xl shadow-sm dark:shadow-none border border-slate-100 dark:border-[#374151] p-6 flex flex-col overflow-hidden transition-colors max-h-[480px]">
+            <div className="flex items-center justify-between mb-6 shrink-0">
               <h3 className="font-bold text-slate-800 dark:text-[#F9FAFB]">Recent Activity</h3>
               <button className="text-xs font-bold text-[#3B82F6] hover:text-[#2563eb]">View all</button>
             </div>
             
-            <div className="flex-1 overflow-y-auto space-y-6 pr-2">
+            <div className="overflow-y-auto space-y-6 pr-2 min-h-0">
               {activities.length === 0 ? (
                  <p className="text-sm font-bold text-slate-400 text-center mt-10">No recent activity</p>
-              ) : activities.map((act) => (
+              ) : activities.slice(0, 8).map((act) => (
                 <div key={act.id} className="flex items-start">
                   <div className={`w-9 h-9 rounded-full flex items-center justify-center mr-3 shrink-0 shadow-sm dark:shadow-none ${
                      act.type === 'inventory' ? 'bg-purple-50 dark:bg-purple-900/20 text-[#8B5CF6]' : 
@@ -510,9 +510,9 @@ export default function DashboardClient() {
                   }`}>
                     {act.type === 'inventory' ? <Package size={16} /> : act.type === 'document' ? <FileText size={16} /> : <Activity size={16} />}
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <h4 className="text-sm font-bold text-slate-800 dark:text-[#F9FAFB]">{act.title}</h4>
-                    <p className="text-xs font-medium text-slate-500 dark:text-[#9CA3AF] mt-0.5">{act.description}</p>
+                    <p className="text-xs font-medium text-slate-500 dark:text-[#9CA3AF] mt-0.5 truncate">{act.description}</p>
                     <p className="text-[10px] text-slate-400 dark:text-[#6B7280] mt-1 uppercase font-bold">
                        {act.createdAt ? new Date(act.createdAt.toDate()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Now'}
                     </p>

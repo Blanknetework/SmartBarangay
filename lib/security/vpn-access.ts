@@ -15,10 +15,7 @@ function parseFirstIp(headerValue: string | null): string | null {
 }
 
 export function extractClientIp(request: NextRequest): string | null {
-  /**
-   * For middleware portability across environments, rely on proxy headers.
-   * In many deployments, x-forwarded-for contains the original client IP.
-   */
+
   return (
     parseFirstIp(request.headers.get("x-forwarded-for")) ??
     normalizeIp(request.headers.get("x-real-ip")) ??
@@ -31,7 +28,7 @@ export function isTailscaleClientIp(ip: string | null): boolean {
   if (!ip) return false;
   if (!ip.startsWith("100.")) return false;
 
-  // Tailscale commonly uses CGNAT range 100.64.0.0/10.
+  // Tailscale uses CGNAT range 100.64.0.0/10.
   const parts = ip.split(".");
   if (parts.length !== 4) return false;
 
