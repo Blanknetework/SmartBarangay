@@ -67,6 +67,7 @@ export default function DashboardClient() {
     documents: 0,
     inventory: 0,
     pendingDocs: 0,
+    releasedDocs: 0,
     healthConsultations: 0,
     paymentRecords: 0,
     patients: 0,
@@ -91,14 +92,16 @@ export default function DashboardClient() {
     });
     const usD = onSnapshot(collection(db, "documents"), s => {
        let pending = 0;
+       let released = 0;
        const docsArr = s.docs.map(doc => {
           const status = String(doc.data().status || "").trim().toLowerCase();
           const isOpenRequest = status !== "approved" && status !== "released" && status !== "completed";
           if (isOpenRequest) pending++;
+          if (status === "released" || status === "completed" || status === "approved") released++;
           return doc.data();
        });
        setDocs(docsArr);
-       setCounts(c => ({...c, documents: s.size, pendingDocs: pending}));
+       setCounts(c => ({...c, documents: s.size, pendingDocs: pending, releasedDocs: released}));
     });
     const usI = onSnapshot(collection(db, "inventory"), s => {
       const inv = s.docs.map((d) => d.data());
@@ -333,10 +336,10 @@ export default function DashboardClient() {
       {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
         {[
-          { title: "Total Residents", count: counts.residents || "0", change: "Live", isUp: true, icon: Users, color: "text-[#3B82F6]", bg: "bg-blue-50 dark:bg-blue-900/20" },
-          { title: "Pending Request", count: counts.documents || "0", change: "Live", isUp: true, icon: FileText, color: "text-[#8B5CF6]", bg: "bg-purple-50 dark:bg-purple-900/20" },
-          { title: "Today's Transactions", count: todayTransactions || "0", change: "Live", isUp: true, icon: Package, color: "text-[#22C55E]", bg: "bg-green-50 dark:bg-green-900/20" },
-          { title: "Patients", count: counts.patients || "0", change: "Live", isUp: true, icon: CheckCircle, color: "text-[#F59E0B]", bg: "bg-yellow-50 dark:bg-yellow-900/20" },
+          { title: "Total Residents", count: counts.residents || "0", change: "Live", isUp: true, showArrow: true, textColor: "", icon: Users, color: "text-[#3B82F6]", bg: "bg-blue-50 dark:bg-blue-900/20" },
+          { title: "Pending Request", count: counts.pendingDocs || "0", change: `Total: ${counts.documents || 0} (Released: ${counts.releasedDocs || 0})`, isUp: true, showArrow: false, textColor: "text-slate-400 dark:text-[#9CA3AF]", icon: FileText, color: "text-[#8B5CF6]", bg: "bg-purple-50 dark:bg-purple-900/20" },
+          { title: "Today's Transactions", count: todayTransactions || "0", change: "Live", isUp: true, showArrow: true, textColor: "", icon: Package, color: "text-[#22C55E]", bg: "bg-green-50 dark:bg-green-900/20" },
+          { title: "Patients", count: counts.patients || "0", change: "Live", isUp: true, showArrow: true, textColor: "", icon: CheckCircle, color: "text-[#F59E0B]", bg: "bg-yellow-50 dark:bg-yellow-900/20" },
         ].map((stat, i) => (
           <div key={i} className="bg-white dark:bg-[#1F2937] rounded-2xl border border-slate-100 dark:border-[#374151] p-6 shadow-sm hover:shadow-md dark:shadow-none dark:hover:border-slate-500 transition-all">
             <div className="flex justify-between items-start mb-4">
@@ -344,15 +347,16 @@ export default function DashboardClient() {
                   <h3 className="text-xs font-bold text-slate-400 dark:text-[#9CA3AF] uppercase tracking-wider mb-2">{stat.title}</h3>
                   <div className="flex items-baseline space-x-2">
                      <h2 className="text-3xl font-black text-slate-800 dark:text-[#F9FAFB] tracking-tight">{stat.count}</h2>
-                     <span className={`flex items-center text-xs font-bold ${stat.isUp ? 'text-[#22C55E]' : 'text-[#EF4444]'}`}>
-                       {stat.isUp ? <ArrowUpRight size={12} className="mr-0.5" /> : <ArrowDownRight size={12} className="mr-0.5" />}
+                     <span className={`flex items-center text-xs font-bold ${stat.textColor ? stat.textColor : stat.isUp ? 'text-[#22C55E]' : 'text-[#EF4444]'}`}>
+                       {stat.showArrow !== false && stat.isUp && <ArrowUpRight size={12} className="mr-0.5" />}
+                       {stat.showArrow !== false && !stat.isUp && <ArrowDownRight size={12} className="mr-0.5" />}
                        {stat.change}
                      </span>
                   </div>
                </div>
                <div className={`p-3 rounded-xl shadow-sm dark:shadow-none ${stat.bg}`}>
-                <stat.icon size={22} className={stat.color} />
-              </div>
+                 <stat.icon size={22} className={stat.color} />
+               </div>
             </div>
           </div>
         ))}
@@ -368,19 +372,19 @@ export default function DashboardClient() {
               <div>
                 <h3 className="font-bold text-slate-800 dark:text-[#F9FAFB]">Monthly Revenue</h3>
               </div>
-              <div className="flex items-center space-x-4 text-xs font-bold text-slate-500 dark:text-[#9CA3AF] bg-slate-50 dark:bg-[#111827] px-3 py-1.5 rounded-lg border border-slate-100 dark:border-[#374151]">
-                  <div className="flex items-center"><span className="w-2.5 h-2.5 rounded-full bg-[#3B82F6] mr-2"></span> This month</div>
-                  <div className="flex items-center"><span className="w-2.5 h-2.5 rounded-full bg-[#CBD5E1] dark:bg-[#374151] mr-2"></span> Last month</div>
+              <div className="flex items-center text-xs font-bold text-slate-500 dark:text-[#9CA3AF] bg-slate-50 dark:bg-[#111827] px-3 py-1.5 rounded-lg border border-slate-100 dark:border-[#374151]">
+                  <span className="flex items-center"><span className="w-2.5 h-2.5 rounded-full bg-[#3B82F6] mr-2"></span> Monthly Revenue Trend</span>
               </div>
             </div>
             <div className="h-72 w-full mt-2">
+              {mounted && (
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={dynamicRevenueData} margin={{ top: 8, right: 12, left: 8, bottom: 8 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDark ? "#374151" : "#f1f1f1"} />
                   <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: isDark ? '#9CA3AF' : '#a0a0a0', fontSize: 12, fontWeight: 600 }} dy={10} />
                   <YAxis axisLine={false} tickLine={false} width={48} tickFormatter={(val) => formatPeso(Number(val))} tick={{ fill: isDark ? '#9CA3AF' : '#a0a0a0', fontSize: 12, fontWeight: 600 }} />
                   <Tooltip 
-                    formatter={(value: any, name: any) => [formatPeso(Number(value)), name === "thisMonth" ? "This month" : "Last month"]}
+                    formatter={(value: any) => [formatPeso(Number(value)), "Revenue"]}
                     labelFormatter={(label) => `${label}`}
                     contentStyle={{ 
                       borderRadius: '12px', 
@@ -393,9 +397,9 @@ export default function DashboardClient() {
                     cursor={{ stroke: isDark ? '#374151' : '#f5f5f5', strokeWidth: 2 }} 
                   />
                   <Line type="monotone" dataKey="thisMonth" stroke="#3B82F6" strokeWidth={4} dot={false} activeDot={{ r: 6, strokeWidth: 3, stroke: isDark ? '#1F2937' : '#fff' }} />
-                  <Line type="monotone" dataKey="lastMonth" stroke={isDark ? "#4B5563" : "#d0d0d0"} strokeWidth={2} strokeDasharray="5 5" dot={false} />
                 </LineChart>
               </ResponsiveContainer>
+              )}
             </div>
           </div>
 
@@ -404,28 +408,30 @@ export default function DashboardClient() {
             <div className="bg-white dark:bg-[#1F2937] rounded-2xl shadow-sm dark:shadow-none border border-slate-100 dark:border-[#374151] p-6 transition-colors">
               <h3 className="font-bold text-slate-800 dark:text-[#F9FAFB] mb-6">Most Requested Services</h3>
               <div className="h-52 w-full">
-                <ResponsiveContainer width="100%" height={208}>
-                  <BarChart data={dynamicServiceData} margin={{ top: 10, right: 8, left: 8, bottom: 0 }} barGap={12}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDark ? "#374151" : "#E5E7EB"} />
-                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: isDark ? '#9CA3AF' : '#6B7280', fontSize: 11, fontWeight: 600 }} dy={8} />
-                    <YAxis axisLine={false} tickLine={false} width={34} tick={{ fill: isDark ? '#9CA3AF' : '#6B7280', fontSize: 11, fontWeight: 600 }} />
-                    <Tooltip 
-                      cursor={{ fill: isDark ? '#374151' : '#f9f9f9' }} 
-                      contentStyle={{ 
-                        borderRadius: '12px', 
-                        backgroundColor: isDark ? '#111827' : '#fff',
-                        color: isDark ? '#F9FAFB' : '#1e293b',
-                        border: isDark ? '1px solid #374151' : '1px solid #f0f0f0', 
-                        fontWeight: 600 
-                      }} 
-                    />
-                    <Bar dataKey="value" radius={[10, 10, 10, 10]} maxBarSize={30}>
-                      {dynamicServiceData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.fill} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+                {mounted && (
+                  <ResponsiveContainer width="100%" height={208}>
+                    <BarChart data={dynamicServiceData} margin={{ top: 10, right: 8, left: 8, bottom: 0 }} barGap={12}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDark ? "#374151" : "#E5E7EB"} />
+                      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: isDark ? '#9CA3AF' : '#6B7280', fontSize: 11, fontWeight: 600 }} dy={8} />
+                      <YAxis axisLine={false} tickLine={false} width={34} tick={{ fill: isDark ? '#9CA3AF' : '#6B7280', fontSize: 11, fontWeight: 600 }} />
+                      <Tooltip 
+                        cursor={{ fill: isDark ? '#374151' : '#f9f9f9' }} 
+                        contentStyle={{ 
+                          borderRadius: '12px', 
+                          backgroundColor: isDark ? '#111827' : '#fff',
+                          color: isDark ? '#F9FAFB' : '#1e293b',
+                          border: isDark ? '1px solid #374151' : '1px solid #f0f0f0', 
+                          fontWeight: 600 
+                        }} 
+                      />
+                      <Bar dataKey="value" radius={[10, 10, 10, 10]} maxBarSize={30}>
+                        {dynamicServiceData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.fill} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
               </div>
             </div>
 
@@ -434,32 +440,34 @@ export default function DashboardClient() {
               <h3 className="font-bold text-slate-800 dark:text-[#F9FAFB] mb-2">Revenue Distribution</h3>
               <div className="flex-1 flex items-center justify-between">
                 <div className="w-1/2 h-44">
-                  <ResponsiveContainer width="100%" height={176}>
-                    <PieChart>
-                      <Pie
-                        data={dynamicDistributionData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={35}
-                        outerRadius={65}
-                        paddingAngle={4}
-                        dataKey="value"
-                        stroke="none"
-                        cornerRadius={4}
-                      >
-                        {dynamicDistributionData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <Tooltip contentStyle={{ 
-                        borderRadius: '12px', 
-                        backgroundColor: isDark ? '#111827' : '#fff',
-                        color: isDark ? '#F9FAFB' : '#1e293b',
-                        border: isDark ? '1px solid #374151' : '1px solid #f0f0f0', 
-                        fontWeight: 600 
-                      }} />
-                    </PieChart>
-                  </ResponsiveContainer>
+                  {mounted && (
+                    <ResponsiveContainer width="100%" height={176}>
+                      <PieChart>
+                        <Pie
+                          data={dynamicDistributionData}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={35}
+                          outerRadius={65}
+                          paddingAngle={4}
+                          dataKey="value"
+                          stroke="none"
+                          cornerRadius={4}
+                        >
+                          {dynamicDistributionData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip contentStyle={{ 
+                          borderRadius: '12px', 
+                          backgroundColor: isDark ? '#111827' : '#fff',
+                          color: isDark ? '#F9FAFB' : '#1e293b',
+                          border: isDark ? '1px solid #374151' : '1px solid #f0f0f0', 
+                          fontWeight: 600 
+                        }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  )}
                 </div>
                 <div className="w-1/2 flex flex-col space-y-3">
                   {dynamicDistributionData.map((d, i) => (

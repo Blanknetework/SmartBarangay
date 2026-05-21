@@ -10,7 +10,9 @@ const nextConfig: NextConfig = {
     root: process.cwd(),
   },
 
-  /* Information Assurance: Strict Security Headers */
+  // Disable React Strict Mode to prevent Firestore internal assertion errors during dev
+  reactStrictMode: false,
+
   async headers() {
     return [
       {

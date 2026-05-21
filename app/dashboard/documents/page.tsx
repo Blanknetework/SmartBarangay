@@ -354,6 +354,7 @@ export default function DocumentRequestPage() {
       await addDoc(collection(db, "revenue"), {
         amount: feeAmount,
         source: "Document Request",
+        category: paidRequest.type,
         details: `${paidRequest.type} for ${paidRequest.name}`,
         date: new Date().toLocaleDateString(),
         createdAt: serverTimestamp()

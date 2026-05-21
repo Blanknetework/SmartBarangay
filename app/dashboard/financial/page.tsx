@@ -16,17 +16,11 @@ export default function FinancialPage() {
   const [filterCategory, setFilterCategory] = useState("All");
   
   const [payments, setPayments] = useState<any[]>([]);
-  const [chartData, setChartData] = useState<any[]>([
-    { name: 'Jan', current: 0, previous: 0 },
-    { name: 'Feb', current: 0, previous: 0 },
-    { name: 'Mar', current: 0, previous: 0 },
-    { name: 'Apr', current: 0, previous: 0 },
-    { name: 'May', current: 0, previous: 0 },
-    { name: 'Jun', current: 0, previous: 0 },
-    { name: 'Jul', current: 0, previous: 0 }
-  ]);
+  const [chartData, setChartData] = useState<any[]>([]);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
     const q = query(collection(db, "revenue"), orderBy("createdAt", "desc"));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetchedPayments = snapshot.docs.map(doc => ({
@@ -35,22 +29,34 @@ export default function FinancialPage() {
       })) as any[];
       setPayments(fetchedPayments);
       
-      // Computed based on real data
-      const newChartData = [
-         { name: 'Jan', current: 0, previous: 0 },
-         { name: 'Feb', current: 0, previous: 0 },
-         { name: 'Mar', current: 0, previous: 0 },
-         { name: 'Apr', current: 0, previous: 0 },
-         { name: 'May', current: 0, previous: 0 },
-         { name: 'Jun', current: 0, previous: 0 },
-         { name: 'Jul', current: 0, previous: 0 }
-      ];
+      // Computed based on real dynamic rolling 7 months
+      const monthTotals = new Map<string, number>();
       fetchedPayments.forEach(p => {
-         const d = p.createdAt?.toDate ? p.createdAt.toDate() : new Date();
-         const monthIndex = d.getMonth();
-         if (monthIndex < 7) {
-            newChartData[monthIndex].current += Number(p.amount || 0);
-         }
+        let d: Date | null = null;
+        if (p.createdAt?.toDate) {
+          d = p.createdAt.toDate();
+        } else if (p.createdAt?.seconds) {
+          d = new Date(p.createdAt.seconds * 1000);
+        } else if (p.date) {
+          const parsed = new Date(p.date);
+          if (!isNaN(parsed.getTime())) d = parsed;
+        }
+        if (!d) return;
+        
+        const key = `${d.getFullYear()}-${d.getMonth()}`;
+        monthTotals.set(key, (monthTotals.get(key) || 0) + Number(p.amount || 0));
+      });
+
+      const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const newChartData = Array.from({ length: 7 }).map((_, idx) => {
+        const date = new Date();
+        date.setDate(1);
+        date.setMonth(date.getMonth() - (6 - idx));
+        const key = `${date.getFullYear()}-${date.getMonth()}`;
+        return {
+          name: MONTH_NAMES[date.getMonth()],
+          current: monthTotals.get(key) || 0
+        };
       });
       setChartData(newChartData);
     });
@@ -99,7 +105,11 @@ export default function FinancialPage() {
                           p.category?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           p.details?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           p.id.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesFilter = filterCategory === "All" || p.category === filterCategory;
+    const matchesFilter = filterCategory === "All" || 
+      p.category === filterCategory ||
+      (filterCategory === "Barangay Clearance" && p.details?.includes("Barangay Clearance")) ||
+      (filterCategory === "Business Permit" && p.details?.includes("Business Permit")) ||
+      (filterCategory === "Other" && !p.details?.includes("Barangay Clearance") && !p.details?.includes("Business Permit"));
     return matchesSearch && matchesFilter;
   });
 
@@ -113,9 +123,22 @@ export default function FinancialPage() {
      return d.toDateString() === new Date().toDateString();
   }).reduce((sum, p) => sum + Number(p.amount || 0), 0);
 
-  const clearanceTotal = payments.filter(p => p.category === "Barangay Clearance").reduce((sum, p) => sum + Number(p.amount || 0), 0);
-  const permitsTotal = payments.filter(p => p.category === "Business Permit").reduce((sum, p) => sum + Number(p.amount || 0), 0);
-  const othersTotal = payments.filter(p => p.category !== "Barangay Clearance" && p.category !== "Business Permit").reduce((sum, p) => sum + Number(p.amount || 0), 0);
+  const clearanceTotal = payments.filter(p => 
+    p.category === "Barangay Clearance" || 
+    p.details?.includes("Barangay Clearance")
+  ).reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+  const permitsTotal = payments.filter(p => 
+    p.category === "Business Permit" || 
+    p.details?.includes("Business Permit")
+  ).reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+  const othersTotal = payments.filter(p => 
+    p.category !== "Barangay Clearance" && 
+    p.category !== "Business Permit" && 
+    !p.details?.includes("Barangay Clearance") && 
+    !p.details?.includes("Business Permit")
+  ).reduce((sum, p) => sum + Number(p.amount || 0), 0);
   
   const totalBreakdown = clearanceTotal + permitsTotal + othersTotal || 1;
   const clearancePct = Math.round((clearanceTotal / totalBreakdown) * 100);
@@ -162,30 +185,31 @@ export default function FinancialPage() {
           <div className="flex justify-between items-center mb-6">
             <h3 className="font-semibold text-slate-800 dark:text-slate-100">Revenue Overview</h3>
             <div className="flex gap-4 text-xs font-medium">
-              <span className="flex items-center gap-1.5 text-blue-600"><div className="w-2 h-2 rounded-full bg-blue-600" /> Current Month</span>
-              <span className="flex items-center gap-1.5 text-slate-400"><div className="w-2 h-2 rounded-full bg-slate-300" /> Previous Month</span>
+              <span className="flex items-center gap-1.5 text-blue-600"><div className="w-2 h-2 rounded-full bg-blue-600" /> Monthly Revenue Trend</span>
             </div>
           </div>
           <div className="h-[300px] w-full" style={{ minHeight: '300px' }}>
-            <ResponsiveContainer width="100%" height={300}>
-              <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorCurrent" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#3B82F6" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" opacity={0.5} />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#94A3B8' }} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#94A3B8' }} />
-                <Tooltip 
-                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                  itemStyle={{ fontWeight: 600 }}
-                />
-                <Area type="monotone" dataKey="previous" stroke="#CBD5E1" strokeDasharray="5 5" fill="none" strokeWidth={2} />
-                <Area type="monotone" dataKey="current" stroke="#3B82F6" fillOpacity={1} fill="url(#colorCurrent)" strokeWidth={3} />
-              </AreaChart>
-            </ResponsiveContainer>
+            {mounted && (
+              <ResponsiveContainer width="100%" height={300}>
+                <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorCurrent" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="#3B82F6" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" opacity={0.5} />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#94A3B8' }} dy={10} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#94A3B8' }} />
+                  <Tooltip 
+                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                    itemStyle={{ fontWeight: 600 }}
+                    formatter={(value: any) => [`₱${Number(value).toLocaleString('en-US', {minimumFractionDigits: 2})}`, "Revenue"]}
+                  />
+                  <Area type="monotone" dataKey="current" stroke="#3B82F6" fillOpacity={1} fill="url(#colorCurrent)" strokeWidth={3} />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
 
@@ -312,8 +336,13 @@ export default function FinancialPage() {
                   <td className="p-4 text-slate-500 dark:text-slate-400">{row.category || row.details || "—"}</td>
                   <td className="p-4 pr-6">
                     <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                      row.status === 'Renewed' ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400' : 
-                      (row.status === 'Paid' || !row.status) ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400' : 'bg-slate-100 text-slate-700'
+                      row.status === 'Paid' || !row.status
+                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400' 
+                        : row.status === 'Pending' || row.status === 'Renewed'
+                        ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400'
+                        : row.status === 'Overdue'
+                        ? 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400'
+                        : 'bg-slate-100 text-slate-700 dark:bg-slate-500/20 dark:text-slate-400'
                     }`}>
                       {row.status || "Paid"}
                     </span>

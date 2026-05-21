@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Search, Settings, User, Moon, Sun, Menu, LogOut, Edit, Trash2, X, Camera, CheckCircle2, Loader2, ShieldCheck, ShieldAlert } from "lucide-react";
+import { Bell, Search, Settings, User, Moon, Sun, Menu, LogOut, Edit, Trash2, X, Camera, CheckCircle2, Loader2, ShieldCheck, ShieldAlert, FileText } from "lucide-react";
 import Image from "next/image";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
@@ -160,7 +160,7 @@ export function Header() {
               <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
               <SheetDescription className="sr-only">Mobile navigation menu</SheetDescription>
               <div className="flex items-center space-x-3 p-6 border-b border-slate-200 dark:border-[#374151]">
-                <Image src="/Barangay1.png" alt="Barangay Logo" width={40} height={40} className="object-contain shrink-0" style={{ width: 'auto', height: '40px' }} priority />
+                <Image src="/Barangay1.png" alt="Barangay Logo" width={40} height={40} className="object-contain shrink-0" priority />
                 <div className="flex flex-col justify-center">
                   <span className="font-black text-[13px] tracking-tighter text-slate-900 dark:text-[#F9FAFB] leading-none">
                     SMARTBARANGAY
@@ -196,7 +196,7 @@ export function Header() {
           </Sheet>
         </div>
 
-        <Image src="/Barangay1.png" alt="Barangay Logo" width={60} height={60} className="object-contain shrink-0" style={{ width: 'auto', height: '60px' }} priority />
+        <Image src="/Barangay1.png" alt="Barangay Logo" width={60} height={60} className="object-contain shrink-0" priority />
         <div className="flex flex-col justify-center hidden sm:flex transition-colors">
           <span className="font-black text-[15px] tracking-tighter text-slate-900 dark:text-[#F9FAFB] leading-none transition-colors">
             SMARTBARANGAY
@@ -286,6 +286,12 @@ export function Header() {
                    <Trash2 size={16} className="text-slate-500" />
                    Recycle Bin
                  </Link>
+                 {role === "admin" && (
+                   <Link href="/dashboard/audit-logs" onClick={() => setShowProfileMenu(false)} className="w-full text-left px-3 py-2 text-[13px] font-bold text-slate-700 dark:text-[#F9FAFB] hover:bg-slate-100 dark:hover:bg-[#374151] rounded-xl transition-colors flex items-center gap-2">
+                     <FileText size={16} className="text-slate-500" />
+                     Audit Logs
+                   </Link>
+                 )}
                  <div className="h-px bg-slate-200 dark:bg-[#374151] my-1 mx-2" />
                  <button 
                    onClick={handleLogout}
